@@ -11,7 +11,7 @@ like a prototype instead of a finished product.
 
 ## Demo
 
-https://github.com/himanshu-here-code/vibecheck/assets/vibecheck-demo.mp4
+(https://github.com/himanshu-here-code/vibecheck/blob/main/public/vibecheck-demo.mp4)
 
 *(If the video doesn't play above, [watch it here](https://vibecheck-one-swart.vercel.app) or download it from the repo.)*
 
