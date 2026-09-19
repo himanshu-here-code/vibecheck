@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { Instrument_Sans, Instrument_Serif, JetBrains_Mono } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 
 const sans = Instrument_Sans({
@@ -28,12 +30,31 @@ export const metadata: Metadata = {
   title: 'VibeCheck — Is your app vibecoded?',
   description:
     'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.',
+  metadataBase: new URL('https://your-deploy-url.vercel.app'),
+  openGraph: {
+    title: 'VibeCheck — Is your app vibecoded?',
+    description:
+      'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.',
+    url: 'https://your-deploy-url.vercel.app',
+    siteName: 'VibeCheck',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'VibeCheck — Is your app vibecoded?',
+    description:
+      'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${display.variable} ${mono.variable}`}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+        <SpeedInsights />
+      </body>
     </html>
   );
 }

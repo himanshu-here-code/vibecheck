@@ -1,4 +1,5 @@
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import Link from 'next/link';
 
 export const metadata = {
@@ -10,6 +11,7 @@ export default function PrivacyPage() {
   return (
     <>
       <Header />
+
       <main className="container-tight pt-16 pb-32">
         <Link
           href="/"
@@ -62,9 +64,7 @@ export default function PrivacyPage() {
           </Section>
 
           <Section title="What we don't store">
-            <p>
-              We do not store, log, or retain any of the following:
-            </p>
+            <p>We do not store, log, or retain any of the following:</p>
             <ul className="ml-5 mt-4 list-disc space-y-2 text-muted">
               <li>The repository URLs you submit</li>
               <li>The code we fetch from those repositories</li>
@@ -78,13 +78,22 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section title="The one exception: Vercel">
+          <Section title="Hosting, analytics, and what Vercel sees">
             <p>
               VibeCheck is hosted on Vercel. Like every web host, Vercel
               processes each incoming request and may keep short-lived
               operational logs (IP address, timestamp, status code) for
               security and abuse prevention. These logs are owned and managed
               by Vercel, not us, and we don&apos;t have access to them.
+            </p>
+            <p className="mt-4">
+              We also use <strong>Vercel Analytics</strong> and{' '}
+              <strong>Vercel Speed Insights</strong> to understand basic
+              traffic patterns (page views, referrers, performance) so we can
+              improve the tool. Both are <strong>cookie-free</strong> and
+              don&apos;t collect personal data — no IP addresses stored, no
+              cross-site tracking, no user identifiers. That&apos;s why you
+              don&apos;t see a cookie banner on this site.
             </p>
             <p className="mt-4">
               You can read more in{' '}
@@ -96,8 +105,8 @@ export default function PrivacyPage() {
               >
                 Vercel&apos;s privacy policy
               </a>
-              . We don&apos;t run any analytics tools (no Google Analytics, no
-              Plausible, no PostHog). Nothing.
+              . We don&apos;t run any other analytics tools — no Google
+              Analytics, no Plausible, no PostHog.
             </p>
           </Section>
 
@@ -135,7 +144,16 @@ export default function PrivacyPage() {
             </p>
             <p className="mt-4">
               If you believe we&apos;ve somehow retained something of yours,
-              email us and we&apos;ll look into it.
+              reach out on{' '}
+              <a
+                href="https://github.com/himanshu-here-code"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-2 underline-offset-2 hover:text-accent"
+              >
+                GitHub
+              </a>{' '}
+              and we&apos;ll look into it.
             </p>
           </Section>
 
@@ -150,25 +168,26 @@ export default function PrivacyPage() {
           <Section title="Changes to this policy">
             <p>
               If we ever change how VibeCheck handles data — for example, if we
-              add analytics or a database — we&apos;ll update this page and
-              bump the date at the top. The current promise is simple: nothing
-              is stored, and we intend to keep it that way.
+              add a database or a new analytics tool — we&apos;ll update this
+              page and bump the date at the top. The current promise is simple:
+              nothing is stored, and we intend to keep it that way.
             </p>
           </Section>
 
           <Section title="Contact">
             <p>
-                Questions, concerns, or just want to say hi? Open an issue on our
-                GitHub or email us at{' '}
-                <a
-                href="mailto:hello@vibecheck.dev"
+              Questions, concerns, or just want to say hi? Reach out on GitHub —{' '}
+              <a
+                href="https://github.com/himanshu-here-code"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="underline decoration-2 underline-offset-2 hover:text-accent"
-                >
-                hello@vibecheck.dev
-                </a>
-                . A real human reads every message.
+              >
+                @himanshu-here-code
+              </a>
+              . A real human reads every message.
             </p>
-            </Section>
+          </Section>
 
           <div
             className="mt-16 rounded-2xl border-2 p-6"
@@ -182,6 +201,8 @@ export default function PrivacyPage() {
           </div>
         </div>
       </main>
+
+      <Footer />
     </>
   );
 }
