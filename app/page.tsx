@@ -1,69 +1,176 @@
-import Image from "next/image";
+'use client';
+import { useMemo, useState } from 'react';
+import { Header } from '@/components/Header';
+import { Hero } from '@/components/Hero';
+import { ScanInput } from '@/components/ScanInput';
+import { LoadingScan } from '@/components/LoadingScan';
+import { ProfileCard } from '@/components/ProfileCard';
+import { StatGrid } from '@/components/StatGrid';
+import { CategorySection } from '@/components/CategorySection';
 
 export default function Home() {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function scan(repoUrl: string) {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Scan failed');
+      setResult(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const grouped = useMemo(() => {
+    if (!result) return [];
+    const order = ['legal', 'seo', 'errors', 'hygiene', 'signatures', 'analytics'];
+    const map = new Map<string, any[]>();
+    for (const issue of result.issues) {
+      if (!map.has(issue.category)) map.set(issue.category, []);
+      map.get(issue.category)!.push(issue);
+    }
+    return order.filter((c) => map.has(c)).map((c) => ({ category: c, issues: map.get(c)! }));
+  }, [result]);
+
+  const buildFullReport = () => {
+    if (!result) return '';
+    const lines: string[] = [];
+
+    lines.push(`# VibeCheck Report — ${result.repo}`);
+    lines.push('');
+    lines.push(`Vibecoded score: ${result.score}% (grade: ${result.grade})`);
+    lines.push(`Files scanned: ${result.fileCount}`);
+    lines.push(`Issues found: ${result.issues.length} · Checks passed: ${result.passed.length}`);
+    lines.push('');
+    lines.push('## Context for the AI');
+    lines.push('');
+    lines.push(
+      `I ran my GitHub repo through VibeCheck, a static analysis tool that finds the small things that make an app look like a prototype instead of a finished product. ` +
+      `The report below lists each issue with severity, what it means, and how to fix it.`
+    );
+    lines.push('');
+    lines.push(
+      `Please go through these issues one by one and fix them in my codebase. ` +
+      `Keep my existing design system, tech stack, and code style — don't rewrite anything that isn't broken. ` +
+      `If an issue doesn't apply to this project, say so and skip it. ` +
+      `Group related fixes into the same change so I can review them together. ` +
+      `After each fix, briefly explain what you changed and why.`
+    );
+    lines.push('');
+
+    const categoryTitles: Record<string, string> = {
+      legal: 'Legal & Trust',
+      seo: 'SEO & Meta',
+      errors: 'Errors & Edge States',
+      hygiene: 'Code Hygiene',
+      signatures: 'Vibecoded Signatures',
+      analytics: 'Analytics',
+    };
+
+    const categories = new Map<string, any[]>();
+    for (const issue of result.issues) {
+      if (!categories.has(issue.category)) categories.set(issue.category, []);
+      categories.get(issue.category)!.push(issue);
+    }
+
+    lines.push('## Issues to fix');
+    lines.push('');
+    for (const [category, issues] of categories.entries()) {
+      lines.push(`### ${categoryTitles[category] ?? category}`);
+      lines.push('');
+      issues.forEach((issue, i) => {
+        lines.push(`${i + 1}. **[${issue.severity.toUpperCase()}] ${issue.title}**`);
+        lines.push(`   - Problem: ${issue.description}`);
+        lines.push(`   - Fix: ${issue.fix}`);
+        lines.push('');
+      });
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('Start with the CRITICAL issues, then HIGH, then the rest.');
+
+    return lines.join('\n');
+  };
+
+  const showHero = !result && !loading;
+  const showReport = result && !loading;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+    <>
+      <Header />
+      <main className="pb-32">
+        {showHero && <Hero />}
+        {!showHero && <div className="pt-12" />}
+
+        <ScanInput onScan={scan} loading={loading} />
+
+        {loading && <LoadingScan />}
+
+        {error && (
+          <div className="container-tight pop">
+            <div className="bd bs bg-danger rounded-2xl px-6 py-5 font-bold text-white">
+              {error}
+            </div>
+          </div>
+        )}
+
+        {showReport && (
+          <div className="container pop space-y-8">
+            <ProfileCard result={result} buildFullReport={buildFullReport} />
+
+            <StatGrid
+              issues={result.issues.length}
+              passed={result.passed.length}
+              files={result.fileCount}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+            {grouped.length > 0 && (
+              <div className="pt-6">
+                <h2 className="headline mb-6 text-4xl">The full report</h2>
+                <div className="space-y-6">
+                  {grouped.map(({ category, issues }) => (
+                    <CategorySection key={category} category={category} issues={issues} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {result.passed.length > 0 && (
+              <details className="bd bs-sm rounded-2xl bg-card p-5">
+                <summary className="font-bold text-sm">
+                  ✓ {result.passed.length} checks passed — see them
+                </summary>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {result.passed.map((p: string) => (
+                    <span
+                      key={p}
+                      className="rounded-md border px-2.5 py-1 font-mono text-[11px]"
+                      style={{ borderColor: 'rgba(10,10,10,0.15)', color: '#6b6b6b' }}
+                    >
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
       </main>
-    </div>
+    </>
   );
 }
