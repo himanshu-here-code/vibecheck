@@ -5,7 +5,15 @@
 Paste a GitHub repo URL. Get an honest report on what makes your app look
 like a prototype instead of a finished product.
 
-**Live:** https://vibecheck-xxx.vercel.app _(replace with your URL)_
+[**Try it live →**](https://vibecheck-one-swart.vercel.app)
+
+---
+
+## Demo
+
+https://github.com/himanshu-here-code/vibecheck/assets/vibecheck-demo.mp4
+
+*(If the video doesn't play above, [watch it here](https://vibecheck-one-swart.vercel.app) or download it from the repo.)*
 
 ---
 
@@ -17,16 +25,18 @@ storage. Just static analysis and an honest report.
 
 It looks for:
 
-- **Legal & Trust** — privacy policy, terms of service, cookie consent, license, contact page
-- **SEO & Meta** — page title, description, Open Graph image, favicon, robots.txt, sitemap
-- **Errors & Edge States** — 404 page, error boundary, loading states, empty states
-- **Code Hygiene** — `.env.example`, `.gitignore`, committed secrets, README, TODO comments
-- **Vibecoded Signatures** — placeholder copy, default fonts, purple gradients, hardcoded localhost URLs, emoji-as-icons
+| Category | What it checks |
+|---|---|
+| **Legal & Trust** | Privacy policy, terms of service, cookie consent, license, contact page |
+| **SEO & Meta** | Page title, description, Open Graph image, favicon, robots.txt, sitemap |
+| **Errors & Edge States** | 404 page, error boundary, loading states, empty states |
+| **Code Hygiene** | `.env.example`, `.gitignore`, committed secrets, README, TODO comments |
+| **Vibecoded Signatures** | Placeholder copy, default fonts, purple gradients, hardcoded localhost URLs, emoji-as-icons |
 
-Each issue comes with a plain-English explanation and a "copy fix prompt"
+Each issue comes with a plain-English explanation and a **copy fix prompt**
 button — paste it into Cursor, Claude, or ChatGPT, and let it do the work.
 
-There's also a single "Copy full report for AI" button that packages every
+There's also a single **Copy full report for AI** button that packages every
 issue into a structured prompt, ready for your AI of choice.
 
 ---
@@ -71,7 +81,7 @@ Nothing is persisted. The repo is fetched, analyzed, and forgotten.
 - **TypeScript**
 - **Tailwind CSS v4**
 - **GitHub REST API** (public, no scopes needed)
-- **Vercel** for hosting
+- **Vercel** for hosting + analytics
 
 Zero external services. Zero database. Zero AI API costs.
 
@@ -159,7 +169,8 @@ vibecheck/
 │       ├── hygiene.ts          # .env, .gitignore, README, secrets
 │       └── signatures.ts       # Vibecoded fingerprint patterns
 ├── public/
-│   └── icon.png                # Header icon (thinner version)
+│   ├── icon.png                # Header icon
+│   └── vibecheck-demo.mp4      # Demo video
 ├── LICENSE
 ├── README.md
 └── SECURITY.md
@@ -188,6 +199,21 @@ Nothing else. Keep checks stateless.
 
 ---
 
+## Roadmap
+
+- [x] Core scanner + scoring
+- [x] Copy fix prompt per issue
+- [x] Copy full report for AI
+- [x] Privacy policy, terms, footer, 404, error boundary
+- [x] Vercel Analytics + Speed Insights
+- [ ] OG image generation for shareable scan results
+- [ ] Shareable public scan URLs (`/scan/owner/repo`)
+- [ ] Private repo support (with OAuth)
+- [ ] CLI: `npx vibecheck owner/repo`
+- [ ] GitHub Action: run on every PR
+
+---
+
 ## Deploying
 
 The fastest path is Vercel:
@@ -202,9 +228,6 @@ Then in the Vercel dashboard:
 1. Go to **Settings → Environment Variables**
 2. Add `GITHUB_TOKEN` for Production, Preview, and Development
 3. Redeploy
-
-You'll get a URL like `vibecheck-yourname.vercel.app`. Update the **Live**
-link at the top of this README.
 
 ---
 
@@ -223,11 +246,20 @@ Issues and PRs welcome. A few guidelines:
 
 ## License
 
-[AGPL-3.0](LICENSE) — free to use, self-host, and modify. If you run it as a
-public service, you must publish your changes.
+## License
 
-For commercial use without the AGPL obligation, reach out:
-[github.com/himanshu-here-code](https://github.com/himanshu-here-code)
+[AGPL-3.0](LICENSE) — you're free to fork, self-host, and modify VibeCheck.
+
+The one rule: if you run a modified version as a public service (a website,
+an API, a SaaS — anything other people use over a network), you must publish
+your modified source code under the same license.
+
+That keeps VibeCheck open for learning, tinkering, and contribution, while
+preventing anyone from repackaging it and selling it as their own.
+
+Want to use VibeCheck commercially without the AGPL obligation? Reach out on
+[GitHub](https://github.com/himanshu-here-code) — happy to talk about a
+commercial license.
 
 ---
 

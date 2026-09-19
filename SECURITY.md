@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 If you discover a security issue in VibeCheck, please report it privately by
-emailing **himanshu@yourdomain.com** or opening a
+emailing **week.updates.with.himanshu@gmail.com** or opening a
 [private security advisory](https://github.com/himanshu-here-code/vibecheck/security/advisories/new).
 
 Please do not open a public issue for security problems.

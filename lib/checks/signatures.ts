@@ -1,5 +1,13 @@
 import { Issue, RepoContext } from '../types';
 
+/**
+ * Patterns that define the "vibecoded signature" checks.
+ *
+ * When adding a new pattern:
+ *   1. Test it against 5+ real repos before shipping
+ *   2. If it can match the check file itself, exclude that file (see sourceFiles filter below)
+ *   3. Prefer specific matches over broad ones — a false positive is worse than a missed signal
+ */
 const PATTERNS: Array<{
   id: string;
   severity: Issue['severity'];
@@ -13,9 +21,10 @@ const PATTERNS: Array<{
     id: 'sig.lorem',
     severity: 'high',
     title: 'Placeholder text found ("Lorem ipsum" / "Your text here")',
-    description: 'Filler content is still in the app. This is THE vibecoded tell.',
+    description:
+      'Filler content is still in the app. This is THE vibecoded tell.',
     fix: 'Replace all placeholder copy with real content.',
-    test: /lorem ipsum|your text here|placeholder text|company name|your company|example\.com/i,
+    test: /\b(lorem ipsum|your text here|insert your|your company name|your tagline|example\.com)\b/i,
   },
   {
     id: 'sig.inter',
@@ -23,17 +32,17 @@ const PATTERNS: Array<{
     title: 'Using Inter font',
     description:
       'Inter is the AI default. Nothing wrong with it, but it signals "no design decisions were made".',
-    fix: 'Try Geist, Satoshi, or a serif for headings. Or keep Inter but pair it.',
-    test: /['"]Inter['"]|font-inter|family=Inter/,
+    fix: 'Try Geist, Satoshi, or a serif for headings. Or keep Inter but pair it with a distinctive display face.',
+    test: /from\s+['"]next\/font\/google['"][\s\S]{0,300}?\bInter(_Tight|_Display)?\b/,
   },
   {
     id: 'sig.purple',
     severity: 'medium',
-    title: 'Classic AI purple gradient detected',
+    title: 'AI-style purple/pink gradient detected',
     description:
-      'Purple-to-pink gradients are the #1 vibecoded signature. Everyone\'s app looks the same.',
-    fix: 'Pick a real brand color. Look at Linear, Vercel, Stripe for restraint.',
-    test: /from-purple-|to-pink-|from-indigo-|#8b5cf6|#a855f7|hsl\(262/,
+      'Purple-to-pink gradients are the #1 vibecoded signature. Every AI-built app looks the same.',
+    fix: 'Pick a real brand color. Look at Linear, Vercel, Stripe for restraint. A solid accent beats a gradient every time.',
+    test: /(from-(purple|pink|indigo|violet|fuchsia)-\d+[\s\S]{0,200}?to-(pink|purple|indigo|violet|fuchsia)-\d+)|(bg-gradient-to-[a-z]+[\s\S]{0,100}?from-(purple|pink|indigo|violet|fuchsia))/i,
   },
   {
     id: 'sig.builtwith',
@@ -41,7 +50,7 @@ const PATTERNS: Array<{
     title: '"Built with ❤️" footer',
     description: 'Screams template. Unless you mean it, cut it.',
     fix: 'Replace with something specific to your product, or nothing.',
-    test: /Built with (❤️|❤|love|Next\.js|React|Vite)/i,
+    test: /built with\s+(❤️|❤|love|next\.js|react|vite)\b/i,
   },
   {
     id: 'sig.localhost',
@@ -56,7 +65,7 @@ const PATTERNS: Array<{
     id: 'sig.dangerous',
     severity: 'high',
     title: 'dangerouslySetInnerHTML used',
-    description: 'XSS risk if content isn\'t sanitized.',
+    description: "XSS risk if content isn't sanitized.",
     fix: 'Use DOMPurify if you must, or avoid it.',
     test: /dangerouslySetInnerHTML/,
   },
@@ -75,9 +84,30 @@ const PATTERNS: Array<{
     description:
       'Emojis as icons (🚀 ✨ 🔥) instead of a real icon set. Looks amateur.',
     fix: 'Use Lucide, Heroicons, or Phosphor. One icon system, everywhere.',
-    test: /[🚀✨🔥💡🎯⚡️🌟💯🎨]/,
+    test: /(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]\s*){3,}/u,
   },
 ];
+
+/**
+ * Files we intentionally skip when looking for vibecoded signatures.
+ */
+const EXCLUDED_PATH_FRAGMENTS = [
+  'node_modules',
+  '.next',
+  'dist/',
+  'lib/checks/',
+  'privacy/page',
+  'terms/page',
+  'LoadingScan',
+];
+
+/**
+ * Files we actually want to scan for signature patterns.
+ */
+function isScannableFile(path: string): boolean {
+  if (!/\.(tsx?|jsx?|vue|svelte|css|scss)$/.test(path)) return false;
+  return !EXCLUDED_PATH_FRAGMENTS.some((frag) => path.includes(frag));
+}
 
 export async function checkSignatures(ctx: RepoContext): Promise<{
   issues: Issue[];
@@ -86,40 +116,37 @@ export async function checkSignatures(ctx: RepoContext): Promise<{
   const issues: Issue[] = [];
   const passed: string[] = [];
 
-  const sourceFiles = ctx.files.filter(
-    (f) =>
-      /\.(tsx?|jsx?|vue|svelte|css|scss)$/.test(f) &&
-      !f.includes('node_modules') &&
-      !f.includes('.next') &&
-      !f.includes('dist/')
-  );
+  const sourceFiles = ctx.files.filter(isScannableFile);
+  const sample = sourceFiles.slice(0, 60);
 
   const hits = new Map<string, number>();
 
-  // Sample up to 60 files to stay under rate limits
-  for (const f of sourceFiles.slice(0, 60)) {
-    const c = await ctx.getFile(f);
-    if (!c) continue;
-    for (const p of PATTERNS) {
-      if (p.test.test(c)) {
-        hits.set(p.id, (hits.get(p.id) ?? 0) + 1);
+  for (const f of sample) {
+    const content = await ctx.getFile(f);
+    if (!content) continue;
+
+    for (const pattern of PATTERNS) {
+      pattern.test.lastIndex = 0;
+      if (pattern.test.test(content)) {
+        hits.set(pattern.id, (hits.get(pattern.id) ?? 0) + 1);
       }
     }
   }
 
-  for (const p of PATTERNS) {
-    const count = hits.get(p.id) ?? 0;
+  for (const pattern of PATTERNS) {
+    const count = hits.get(pattern.id) ?? 0;
+
     if (count > 0) {
       issues.push({
-        id: p.id,
-        category: p.category ?? 'signatures',
-        severity: p.severity,
-        title: p.title + (count > 1 ? ` (${count} files)` : ''),
-        description: p.description,
-        fix: p.fix,
+        id: pattern.id,
+        category: pattern.category ?? 'signatures',
+        severity: pattern.severity,
+        title: pattern.title + (count > 1 ? ` (${count} files)` : ''),
+        description: pattern.description,
+        fix: pattern.fix,
       });
     } else {
-      passed.push(p.id);
+      passed.push(pattern.id);
     }
   }
 

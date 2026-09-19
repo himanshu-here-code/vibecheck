@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { ScoreRing } from './ScoreRing';
 import { ClipboardIcon, CheckIcon } from './Icons';
+import { TYPE_LABELS } from '@/lib/detect/checks-by-type';
 
 export function ProfileCard({
   result,
@@ -66,7 +67,14 @@ export function ProfileCard({
                 {result.repo}
               </div>
               <div className="text-xs text-muted">
-                GitHub repo · {result.fileCount} files
+                {result.projectType?.type && result.projectType.type !== 'unknown' ? (
+                  <>
+                    Detected as <strong>{TYPE_LABELS[result.projectType.type as keyof typeof TYPE_LABELS]}</strong> ·{' '}
+                    {result.fileCount} files
+                  </>
+                ) : (
+                  <>GitHub repo · {result.fileCount} files</>
+                )}
               </div>
             </div>
           </div>

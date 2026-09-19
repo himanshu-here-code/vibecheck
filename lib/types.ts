@@ -37,3 +37,17 @@ export interface RepoContext {
   getFile: (path: string) => Promise<string | null>;
   getFileByPattern: (re: RegExp) => string | null;
 }
+export interface ScanResult {
+  repo: string;
+  score: number;
+  grade: string;
+  issues: Issue[];
+  passed: string[];
+  fileCount: number;
+  scannedAt: string;
+  projectType?: {
+    type: string;
+    confidence: number;
+    signals: string[];
+  };
+}
