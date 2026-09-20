@@ -35,7 +35,7 @@ export function ProfileCard({
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
     } catch {
-      // clipboard failure — silently ignore
+      // ignore
     }
   }
 
@@ -64,7 +64,6 @@ export function ProfileCard({
             Report for
           </div>
 
-          {/* Repo identity row */}
           <div className="mt-2 flex items-center gap-3">
             {avatar ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -108,12 +107,10 @@ export function ProfileCard({
             </div>
           </div>
 
-          {/* Verdict */}
           <p className="mt-5 text-[15px] leading-relaxed text-muted">
             {verdictCopy(result.score, result.projectPurpose?.purpose)}
           </p>
 
-          {/* Skipped checks notice */}
           {skippedChecks.length > 0 && (
             <div
               className="mt-4 rounded-xl border px-3.5 py-2.5 text-[12px] leading-relaxed"
@@ -127,12 +124,11 @@ export function ProfileCard({
                 {skippedChecks.length} check
                 {skippedChecks.length === 1 ? '' : 's'} skipped:{' '}
               </span>
-              {skippedChecks.join(', ')}. This repo doesn&apos;t appear to be a
-              user-facing product, so those checks don&apos;t apply.
+              {skippedChecks.join(', ')}.{' '}
+              {skipReason(result.projectType?.type ?? 'unknown')}
             </div>
           )}
 
-          {/* Actions */}
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <button
               onClick={copyFull}
@@ -152,6 +148,27 @@ export function ProfileCard({
       </div>
     </div>
   );
+}
+
+/**
+ * Type-aware explanation for why checks were skipped. Reads better than
+ * the generic "not a user-facing product" message.
+ */
+function skipReason(type: string): string {
+  switch (type) {
+    case 'library':
+      return 'App-level checks (legal, SEO, error states) don\u2019t apply to libraries and SDKs.';
+    case 'cli-tool':
+      return 'Web-specific checks don\u2019t apply to command-line tools.';
+    case 'docs':
+      return 'App-level checks don\u2019t apply to documentation sites.';
+    case 'api-service':
+      return 'Frontend checks don\u2019t apply to backend services.';
+    case 'browser-extension':
+      return 'Some web checks don\u2019t apply to browser extensions.';
+    default:
+      return 'Some checks don\u2019t apply to this kind of project.';
+  }
 }
 
 function verdictCopy(score: number, purpose?: string): string {

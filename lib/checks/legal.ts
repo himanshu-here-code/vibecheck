@@ -2,59 +2,140 @@ import { Issue, RepoContext } from '../types';
 import type { ProjectPurpose } from '../detect/purpose';
 
 // -----------------------------------------------------------------------------
-// Content signatures
+// Privacy policy detection
 // -----------------------------------------------------------------------------
 
+/**
+ * Detects real privacy policies. Accepts:
+ *   - Pages titled "Privacy Policy" / "Privacy Notice" / "Privacy Statement"
+ *   - Standard legal language ("we collect", "GDPR", "you have the right")
+ *   - Denial policies ("we don't store", "no data is retained")
+ *   - Short policies that describe a stateless tool
+ */
 function looksLikePrivacyPolicy(content: string): boolean {
   const text = content.toLowerCase();
+
+  // Strong signal #1 — page header says "privacy policy"
+  if (
+    /(^|>|\s|["'])privacy\s+(policy|notice|statement)(<|\s|$|["',.])/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  // Strong signal #2 — common heading patterns
+  if (
+    /<h1[^>]*>\s*privacy\s*<\/h1>/i.test(text) ||
+    /"title"\s*:\s*["'][^"']*privacy/i.test(text)
+  ) {
+    return true;
+  }
+
+  // Weaker signals — need 2+
   const signals = [
-    /we (collect|process|store|handle|share) (your|personal|user)/i,
-    /(gdpr|ccpa|california consumer privacy)/i,
-    /you (have the right|can request|may opt out|can delete)/i,
+    // Positive voice
+    /we (collect|process|store|handle|share|retain) (your|personal|user|any)/i,
+    /(gdpr|ccpa|california consumer privacy|pipeda)/i,
+    /you (have the right|can request|may opt out|can delete|can access)/i,
     /(cookie|tracking) (policy|preferences|consent)/i,
     /data (controller|processor|protection officer)/i,
-    /(opt[- ]out|unsubscribe|delete your account)/i,
+    /(opt[- ]out|unsubscribe|delete your account|right to erasure)/i,
+    /third[- ]party (services|providers|processors)/i,
+    // Negative voice — privacy-respecting tools
+    /we (do not|don'?t|never)\s+(collect|store|share|sell|track|retain|use)/i,
+    /(no|zero|nothing)\s+(data|information|personal data|user data|analytics)\s+(is|are|is)\s*(stored|collected|retained|saved|kept)/i,
+    /we (don'?t|do not)\s+(have|use|keep)\s+(a\s+)?(database|logs?|accounts?)/i,
+    // Meta
+    /this (privacy )?(policy|notice) (explains|describes|covers|applies)/i,
+    /(how|what) (we|this (site|app|service)) (handle|use|do with|collect)/i,
   ];
   return signals.filter((r) => r.test(text)).length >= 2;
 }
+
+// -----------------------------------------------------------------------------
+// Terms of service detection
+// -----------------------------------------------------------------------------
 
 function looksLikeTerms(content: string): boolean {
   const text = content.toLowerCase();
+
+  // Strong signal — page header
+  if (
+    /(^|>|\s|["'])terms\s+(of\s+(service|use)|and\s+conditions|& ?conditions)(<|\s|$|["',.])/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    /<h1[^>]*>\s*terms[^<]*<\/h1>/i.test(text) ||
+    /"title"\s*:\s*["'][^"']*terms/i.test(text)
+  ) {
+    return true;
+  }
+
   const signals = [
-    /(terms (of|and) (service|use)|terms & conditions)/i,
-    /you (agree|acknowledge|warrant) (to|that)/i,
-    /(governing law|jurisdiction|venue)/i,
-    /(limitation of liability|limitation on liability)/i,
-    /we (reserve|may) (the right|terminate|suspend)/i,
-    /(indemnif|hold harmless)/i,
+    /(terms (of|and) (service|use)|terms & conditions|tos\b)/i,
+    /you (agree|acknowledge|warrant|covenant) (to|that|not)/i,
+    /(governing law|jurisdiction|venue|arbitration)/i,
+    /(limitation of liability|limitation on liability|indemnif|hold harmless)/i,
+    /we (reserve|may)\s+(the right|terminate|suspend|modify|update)/i,
+    /(acceptable use|prohibited (conduct|uses|activities))/i,
+    /(intellectual property|ip ownership|user content)/i,
+    /(warranty disclaimer|as[- ]is|no warranties)/i,
   ];
   return signals.filter((r) => r.test(text)).length >= 2;
 }
 
+// -----------------------------------------------------------------------------
+// Contact page detection
+// -----------------------------------------------------------------------------
+
 function looksLikeContactPage(content: string): boolean {
   const text = content.toLowerCase();
+
+  // Strong signal — page header
+  if (/(^|>|\s|["'])contact(\s+us)?(<|\s|$|["',.])/i.test(text)) {
+    return true;
+  }
+
   const signals = [
-    /(get in touch|contact us|reach out|say hi|say hello)/i,
-    /(email|mail) us at/i,
+    /(get in touch|reach out|say hi|say hello|drop us a line)/i,
+    /(email|mail|write|message) us (at|via)/i,
     /@[a-z0-9-]+\.[a-z]{2,}/i,
-    /(github\.com\/|mailto:|twitter\.com\/|x\.com\/)/i,
+    /(github\.com\/|gitlab\.com\/|mailto:|twitter\.com\/|x\.com\/|linkedin\.com\/)/i,
+    /(contact (form|page|info|details))/i,
   ];
   return signals.filter((r) => r.test(text)).length >= 2;
 }
+
+// -----------------------------------------------------------------------------
+// File finder
+// -----------------------------------------------------------------------------
 
 async function findFileWithContent(
   ctx: RepoContext,
   candidates: RegExp[],
   signature: (c: string) => boolean,
-  maxFiles = 30
+  maxFiles = 40
 ): Promise<string | null> {
+  const SKIP = [
+    'node_modules',
+    '.next',
+    'dist/',
+    'build/',
+    'venv/',
+    '.venv/',
+    '__pycache__/',
+    'target/',
+    'vendor/',
+  ];
+
+  // Pass 1 — files matching candidate patterns
   const matches = ctx.files.filter(
-    (f) =>
-      !f.includes('node_modules') &&
-      !f.includes('.next') &&
-      !f.includes('venv/') &&
-      !f.includes('__pycache__/') &&
-      candidates.some((rx) => rx.test(f))
+    (f) => !SKIP.some((s) => f.includes(s)) && candidates.some((rx) => rx.test(f))
   );
 
   for (const f of matches.slice(0, maxFiles)) {
@@ -62,11 +143,11 @@ async function findFileWithContent(
     if (content && signature(content)) return f;
   }
 
-  // Fallback: scan source extension files
+  // Pass 2 — fallback: any file with the right source extension
   const sourceMatches = ctx.files
     .filter((f) => ctx.lang.sourceExtensions.test(f))
-    .filter((f) => !f.includes('node_modules') && !f.includes('venv/'))
-    .slice(0, 15);
+    .filter((f) => !SKIP.some((s) => f.includes(s)))
+    .slice(0, 20);
 
   for (const f of sourceMatches) {
     const content = await ctx.getFile(f);
@@ -77,7 +158,7 @@ async function findFileWithContent(
 }
 
 // -----------------------------------------------------------------------------
-// Check
+// Main check
 // -----------------------------------------------------------------------------
 
 export async function checkLegal(ctx: RepoContext): Promise<{
@@ -89,24 +170,16 @@ export async function checkLegal(ctx: RepoContext): Promise<{
   const { lang, language } = ctx;
   const purpose = ctx.projectPurpose as ProjectPurpose | undefined;
 
-  // -----------------------------------------------------------------------
-  // Legal checks apply only to projects that actually face end users:
-  // products, templates, and portfolios. Libraries, CLIs, docs, learning
-  // repos, and experiments don't collect user data and don't need them.
-  // -----------------------------------------------------------------------
-  const LEGAL_APPLIES: ProjectPurpose[] = [
-    'product',
-    'boilerplate',
-    'portfolio',
-  ];
-
-  if (!purpose || !LEGAL_APPLIES.includes(purpose)) {
-    // Silently pass all legal checks — they don't apply here
-    passed.push('legal.privacy');
-    passed.push('legal.terms');
-    passed.push('legal.cookies');
-    passed.push('legal.license');
-    passed.push('legal.contact');
+  // Legal checks apply only to user-facing projects
+  const APPLIES: ProjectPurpose[] = ['product', 'boilerplate', 'portfolio'];
+  if (!purpose || !APPLIES.includes(purpose)) {
+    passed.push(
+      'legal.privacy',
+      'legal.terms',
+      'legal.cookies',
+      'legal.license',
+      'legal.contact'
+    );
     return { issues, passed };
   }
 
@@ -123,9 +196,9 @@ export async function checkLegal(ctx: RepoContext): Promise<{
       category: 'legal',
       severity: 'critical',
       title: 'No privacy policy',
-      description: `We couldn\u2019t find a privacy policy in this ${language.primary} project. If you collect any user data — analytics, auth, payments — this is legally required in the EU, UK, and California.`,
+      description: `We couldn't find a privacy policy in this ${language.primary} project. If you collect any user data — analytics, auth, payments — this is legally required in the EU, UK, and California.`,
       fix:
-        'Add a privacy page with a policy covering: what data you collect, how it\u2019s used, third parties involved, user rights, and a contact method.',
+        'Add a privacy page with a policy covering: what data you collect, how it\'s used, third parties involved, user rights, and a contact method.',
       docs: 'https://gdpr.eu/privacy-notice/',
     });
   } else {
@@ -161,10 +234,10 @@ export async function checkLegal(ctx: RepoContext): Promise<{
       ctx,
       [/cookie/i, /consent/i, /gdpr/i],
       (c) =>
-        /(cookie (consent|banner|policy)|accept (all )?cookies|gdpr (consent|banner))/i.test(
+        /(cookie (consent|banner|policy)|accept (all )?cookies|gdpr (consent|banner)|consent (to|for) cookies)/i.test(
           c
         ),
-      15
+      20
     );
     if (!cookieFile) {
       issues.push({
@@ -186,7 +259,7 @@ export async function checkLegal(ctx: RepoContext): Promise<{
 
   // ---- License -------------------------------------------------------------
   const hasLicense = ctx.files.some((f) =>
-    /(^|\/)(LICENSE|LICENCE|COPYING)(\.|$)/i.test(f)
+    /(^|\/)(LICENSE|LICENCE|COPYING|UNLICENSE)(\.|$)/i.test(f)
   );
   if (!hasLicense) {
     issues.push({
@@ -197,7 +270,7 @@ export async function checkLegal(ctx: RepoContext): Promise<{
       description:
         "Without a license, others can't legally use or contribute to your code.",
       fix:
-        'Add a LICENSE at your repo root. MIT if you want it open, or a proprietary notice if you don\u2019t.',
+        'Add a LICENSE at your repo root. MIT if you want it open, or a proprietary notice if you don\'t.',
     });
   } else {
     passed.push('legal.license');
@@ -208,9 +281,15 @@ export async function checkLegal(ctx: RepoContext): Promise<{
     ctx,
     lang.contactCandidates,
     looksLikeContactPage,
-    15
+    20
   );
-  if (!contactFile) {
+
+  // Fallback: check the footer for a contact link (mailto, GitHub issues, etc.)
+  const footerHasContact = !contactFile
+    ? await footerHasContactLink(ctx)
+    : false;
+
+  if (!contactFile && !footerHasContact) {
     issues.push({
       id: 'legal.contact',
       category: 'legal',
@@ -229,6 +308,29 @@ export async function checkLegal(ctx: RepoContext): Promise<{
 }
 
 // -----------------------------------------------------------------------------
+// Footer fallback — sometimes contact lives in the footer, not a page
+// -----------------------------------------------------------------------------
+
+async function footerHasContactLink(ctx: RepoContext): Promise<boolean> {
+  const footerCandidates = ctx.files.filter((f) =>
+    /footer|layout/i.test(f)
+  );
+
+  for (const f of footerCandidates.slice(0, 8)) {
+    const content = await ctx.getFile(f);
+    if (!content) continue;
+    if (
+      /(mailto:|href\s*=\s*["']\/contact|href\s*=\s*["'][^"']*github\.com\/[^"']*\/issues)/i.test(
+        content
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// -----------------------------------------------------------------------------
 // Tracking detection
 // -----------------------------------------------------------------------------
 
@@ -239,6 +341,7 @@ async function detectTracking(ctx: RepoContext): Promise<boolean> {
     'amplitude',
     'hotjar',
     'gtag',
+    'google-analytics',
     'googletagmanager',
     'matomo',
     '@segment/',
@@ -246,9 +349,11 @@ async function detectTracking(ctx: RepoContext): Promise<boolean> {
     'sentry',
     'datadog',
     'newrelic',
+    'fullstory',
+    'logrocket',
   ];
 
-  // JS/TS: parse package.json, check dependency NAMES
+  // package.json — dependency names only
   const pkg = await ctx.getFile('package.json');
   if (pkg) {
     try {
@@ -257,41 +362,25 @@ async function detectTracking(ctx: RepoContext): Promise<boolean> {
         ...(data.dependencies ?? {}),
         ...(data.devDependencies ?? {}),
       }).map((d) => d.toLowerCase());
-
       for (const lib of trackingLibs) {
         if (deps.some((d) => d.includes(lib))) return true;
       }
     } catch {
-      // malformed package.json
+      // skip
     }
   }
 
   // Python manifests
-  const pyManifests = ['requirements.txt', 'Pipfile'];
-  for (const manifest of pyManifests) {
+  for (const manifest of ['requirements.txt', 'Pipfile', 'pyproject.toml']) {
     const content = await ctx.getFile(manifest);
     if (!content) continue;
-    const lines = content.toLowerCase().split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      for (const lib of trackingLibs) {
-        if (trimmed.startsWith(lib) || trimmed.includes(`/${lib}`)) return true;
-      }
+    const lower = content.toLowerCase();
+    for (const lib of trackingLibs) {
+      if (lower.includes(lib)) return true;
     }
   }
 
-  // Source-level: look for actual API calls (not comments)
-  const sourceSample = ctx.files
-    .filter((f) => ctx.lang.sourceExtensions.test(f))
-    .filter(
-      (f) =>
-        !f.includes('node_modules') &&
-        !f.includes('venv/') &&
-        !f.includes('__pycache__/')
-    )
-    .slice(0, 25);
-
+  // Source-level: actual API calls
   const usagePatterns = [
     /gtag\s*\(/,
     /googletagmanager\.com\/gtag/i,
@@ -300,7 +389,14 @@ async function detectTracking(ctx: RepoContext): Promise<boolean> {
     /hotjar\./i,
     /hj\s*\(/,
     /_paq\.push/,
+    /LogRocket\.init/i,
+    /FullStory\.init/i,
   ];
+
+  const sourceSample = ctx.files
+    .filter((f) => ctx.lang.sourceExtensions.test(f))
+    .filter((f) => !/node_modules|venv\/|__pycache__/.test(f))
+    .slice(0, 30);
 
   for (const f of sourceSample) {
     const c = await ctx.getFile(f);

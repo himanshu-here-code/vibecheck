@@ -1,10 +1,6 @@
 import type { LanguageDetection } from './detect/language';
 import type { LanguagePack } from './detect/language-packs';
 
-// -----------------------------------------------------------------------------
-// Core types
-// -----------------------------------------------------------------------------
-
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
 export type Category =
@@ -16,10 +12,6 @@ export type Category =
   | 'quality'
   | 'analytics';
 
-// -----------------------------------------------------------------------------
-// Issue — a single problem found during scan
-// -----------------------------------------------------------------------------
-
 export interface Issue {
   id: string;
   category: Category;
@@ -30,10 +22,6 @@ export interface Issue {
   docs?: string;
   affectedFiles?: string[];
 }
-
-// -----------------------------------------------------------------------------
-// RepoContext — what every check receives
-// -----------------------------------------------------------------------------
 
 export interface RepoContext {
   owner: string;
@@ -49,10 +37,6 @@ export interface RepoContext {
   projectPurpose?: string;
 }
 
-// -----------------------------------------------------------------------------
-// ScanResult — what the API returns
-// -----------------------------------------------------------------------------
-
 export interface ProjectTypeInfo {
   type: string;
   confidence: number;
@@ -67,10 +51,10 @@ export interface ProjectPurposeInfo {
 
 export interface ScanResult {
   repo: string;
-  score: number;          // 0-100, higher = more vibecoded
-  grade: string;          // A-F
+  score: number;
+  grade: string;
   issues: Issue[];
-  passed: string[];       // ids of checks that passed
+  passed: string[];
   fileCount: number;
   scannedAt: string;
   projectType?: ProjectTypeInfo;

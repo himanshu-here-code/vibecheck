@@ -36,20 +36,25 @@ export async function runAllChecks(ctx: RepoContext): Promise<
     skippedChecks: string[];
   }
 > {
-  // Step 1: Read the README and package.json
   const readme = await ctx.getFile('README.md');
   const pkg = await ctx.getFile('package.json');
 
-  // Step 2: Detect type and purpose
-  const projectType = detectProjectType(readme ?? '', pkg);
+  const projectType = detectProjectType(
+    readme ?? '',
+    pkg,
+    ctx.files,
+    ctx.language.primary,
+    ctx.repo,
+    ctx.owner
+  );
   const projectPurpose = detectPurpose(
     readme ?? '',
     projectType.type,
     ctx.files.length
   );
+
   ctx.projectPurpose = projectPurpose.purpose;
 
-  // Step 3: Figure out which checks to run — purpose wins over type
   const enabledChecks: string[] = resolveChecks(
     projectType.type,
     projectPurpose.purpose
@@ -67,12 +72,10 @@ export async function runAllChecks(ctx: RepoContext): Promise<
     (c: string) => !enabledChecks.includes(c)
   );
 
-  // Step 4: Run them in parallel
   const results = await Promise.all(
     enabledChecks.map((name: string) => RUNNERS[name](ctx))
   );
 
-  // Step 5: Aggregate
   const issues: Issue[] = results
     .flatMap((r: { issues: Issue[]; passed: string[] }) => r.issues)
     .sort((a: Issue, b: Issue) => WEIGHTS[b.severity] - WEIGHTS[a.severity]);

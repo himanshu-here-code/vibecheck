@@ -2,11 +2,7 @@ import { Issue, RepoContext } from '../types';
 import { Language } from '../detect/language';
 import { ProjectPurpose } from '../detect/purpose';
 
-/**
- * Directories where console.log / print() statements are legitimate.
- * Demos, examples, and benchmark scripts are expected to print output.
- */
-const PRINT_FRIENDLY_DIRS = [
+const PRINT_FRIENDLY = [
   'examples/',
   'example/',
   'scripts/',
@@ -21,12 +17,9 @@ const PRINT_FRIENDLY_DIRS = [
   '__tests__/',
   'fixtures/',
   'test-fixtures/',
-  '.github/', // GitHub Actions and CI are not user-facing
+  '.github/',
 ];
 
-/**
- * Build/output directories that shouldn't be scanned at all.
- */
 const BUILD_DIRS = [
   'node_modules/',
   '.next/',
@@ -39,19 +32,17 @@ const BUILD_DIRS = [
   'target/',
   'vendor/',
   '.cache/',
+  'coverage/',
 ];
 
-function shouldSkipForPrint(path: string): boolean {
+function skipPrint(path: string): boolean {
   return (
-    PRINT_FRIENDLY_DIRS.some(
-      (d) => path.startsWith(d) || path.includes(`/${d}`)
-    ) ||
-    path.includes('.test.') ||
-    path.includes('.spec.')
+    PRINT_FRIENDLY.some((d) => path.startsWith(d) || path.includes(`/${d}`)) ||
+    /\.(test|spec)\.[a-z]+$/i.test(path)
   );
 }
 
-function shouldSkipEntirely(path: string): boolean {
+function skipAll(path: string): boolean {
   return BUILD_DIRS.some((d) => path.startsWith(d) || path.includes(`/${d}`));
 }
 
@@ -71,11 +62,11 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
 
   const has = (re: RegExp) => ctx.files.some((f) => re.test(f));
 
-  // ---------------------------------------------------------------------------
-  // .env.example
-  // ---------------------------------------------------------------------------
+  // ---- .env.example --------------------------------------------------------
   {
-    const hasEnvExample = has(/\.env\.(example|sample|template)$/i);
+    const hasEnvExample = has(
+      /\.env\.(example|sample|template|dist)$/i
+    );
     if (hasEnvExample) {
       passed.push('hygiene.env');
     } else if (isLowExpectation) {
@@ -98,9 +89,7 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // .gitignore
-  // ---------------------------------------------------------------------------
+  // ---- .gitignore ----------------------------------------------------------
   if (!ctx.fileSet.has('.gitignore')) {
     issues.push({
       id: 'hygiene.gitignore',
@@ -115,9 +104,7 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     passed.push('hygiene.gitignore');
   }
 
-  // ---------------------------------------------------------------------------
-  // Committed junk directories
-  // ---------------------------------------------------------------------------
+  // ---- Committed junk ------------------------------------------------------
   {
     const junkDirs = [
       'node_modules',
@@ -128,8 +115,10 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       'vendor',
       'dist',
       'build',
+      'out',
       '.next',
       '.cache',
+      'coverage',
     ];
     const committed = ctx.files.find((f) => {
       const top = f.split('/')[0];
@@ -152,10 +141,12 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Committed .env file
-  // ---------------------------------------------------------------------------
-  if (ctx.files.some((f) => /^\.env$/.test(f) || /^\.env\.local$/.test(f))) {
+  // ---- Committed .env ------------------------------------------------------
+  if (
+    ctx.files.some((f) =>
+      /^(\.env|\.env\.local|\.env\.production|\.env\.development)$/.test(f)
+    )
+  ) {
     issues.push({
       id: 'hygiene.envcommitted',
       category: 'hygiene',
@@ -165,16 +156,15 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
         'Your secrets may be public. Anyone who forks this repo has your API keys.',
       fix:
         'Remove .env from git, add it to .gitignore, and rotate any exposed keys.',
-      affectedFiles: ['.env'],
     });
   } else {
     passed.push('hygiene.envcommitted');
   }
 
-  // ---------------------------------------------------------------------------
-  // README
-  // ---------------------------------------------------------------------------
-  const readme = ctx.getFileByPattern(/^README(\.md|\.rst|\.txt)?$/i);
+  // ---- README --------------------------------------------------------------
+  const readme = ctx.getFileByPattern(
+    /^README(\.md|\.rst|\.txt)?$/i
+  );
   if (!readme) {
     issues.push({
       id: 'hygiene.readme',
@@ -188,9 +178,7 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     passed.push('hygiene.readme');
   }
 
-  // ---------------------------------------------------------------------------
-  // package.json name (JS/TS only)
-  // ---------------------------------------------------------------------------
+  // ---- Package name (JS/TS) ------------------------------------------------
   if (language.primary === 'typescript' || language.primary === 'javascript') {
     const pkg = await ctx.getFile('package.json');
     if (pkg) {
@@ -204,6 +192,8 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
           'test',
           'app',
           'next-app',
+          'react-app',
+          'new-project',
         ];
         if (data.name && badNames.includes(data.name.toLowerCase())) {
           issues.push({
@@ -219,48 +209,46 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
           passed.push('hygiene.pkgname');
         }
       } catch {
-        // malformed package.json
+        // skip
       }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // pyproject.toml name (Python only)
-  // ---------------------------------------------------------------------------
+  // ---- Package name (Python) -----------------------------------------------
   if (language.primary === 'python') {
-    const pyproject = await ctx.getFile('pyproject.toml');
-    if (pyproject) {
-      const nameMatch = pyproject.match(/name\s*=\s*["']([^"']+)["']/);
+    for (const manifest of ['pyproject.toml', 'setup.py']) {
+      const content = await ctx.getFile(manifest);
+      if (!content) continue;
+      const m = content.match(/name\s*=\s*["']([^"']+)["']/);
       if (
-        nameMatch &&
-        ['my-project', 'example-project', 'python-project'].includes(
-          nameMatch[1].toLowerCase()
+        m &&
+        ['my-project', 'example-project', 'python-project', 'test'].includes(
+          m[1].toLowerCase()
         )
       ) {
         issues.push({
           id: 'hygiene.pkgname',
           category: 'hygiene',
           severity: 'low',
-          title: `pyproject.toml name is "${nameMatch[1]}"`,
+          title: `${manifest} name is "${m[1]}"`,
           description: 'Default scaffold name. Rename it.',
-          fix: `Set \`name = "your-real-name"\` in pyproject.toml.`,
-          affectedFiles: ['pyproject.toml'],
+          fix: `Set \`name = "your-real-name"\` in ${manifest}.`,
         });
+        break;
       } else {
         passed.push('hygiene.pkgname');
+        break;
       }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // TODO/FIXME — skipped for learning/experiment/docs
-  // ---------------------------------------------------------------------------
+  // ---- TODO/FIXME ----------------------------------------------------------
   if (isLowExpectation) {
     passed.push('hygiene.todos');
   } else {
     const sourceFiles = ctx.files
       .filter((f) => ctx.lang.sourceExtensions.test(f))
-      .filter((f) => !shouldSkipEntirely(f));
+      .filter((f) => !skipAll(f));
 
     let todoCount = 0;
     const filesWithTodos: string[] = [];
@@ -269,7 +257,7 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       const c = await ctx.getFile(f);
       if (!c) continue;
       const matches = c.match(
-        /(?:\/\/|#|--|\/\*)\s*(?:TODO|FIXME|XXX|HACK)\b/gi
+        /(?:\/\/|#|--|<!--)\s*(?:TODO|FIXME|XXX|HACK)\b/gi
       );
       if (matches) {
         todoCount += matches.length;
@@ -277,7 +265,8 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       }
     }
 
-    if (todoCount > 3) {
+    // Require 5+ for a "hygiene" signal (was 3) — real projects have some TODOs
+    if (todoCount > 5) {
       issues.push({
         id: 'hygiene.todos',
         category: 'hygiene',
@@ -292,10 +281,7 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Debug output — skipped for learning/experiment/docs, and for
-  // example/script/bench directories where printing is expected.
-  // ---------------------------------------------------------------------------
+  // ---- Debug output --------------------------------------------------------
   if (isLowExpectation) {
     passed.push('hygiene.console');
   } else {
@@ -303,9 +289,9 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       typescript: /console\.(log|debug|info)\s*\(/g,
       javascript: /console\.(log|debug|info)\s*\(/g,
       python: /(^|\s)print\s*\(/gm,
-      ruby: /(^|\s)puts\s+/g,
+      ruby: /(^|\s)(puts|p|pp)\s+/g,
       go: /fmt\.Print(ln|f)?\(/g,
-      php: /(^|\s)var_dump\s*\(|(^|\s)print_r\s*\(/g,
+      php: /(^|\s)(var_dump|print_r)\s*\(/g,
       rust: /println!\s*\(/g,
     };
 
@@ -314,8 +300,8 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
 
     const sourceFiles = ctx.files
       .filter((f) => ctx.lang.sourceExtensions.test(f))
-      .filter((f) => !shouldSkipEntirely(f))
-      .filter((f) => !shouldSkipForPrint(f));
+      .filter((f) => !skipAll(f))
+      .filter((f) => !skipPrint(f));
 
     let debugCount = 0;
     const filesWithDebugs: string[] = [];
@@ -331,7 +317,8 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       }
     }
 
-    if (debugCount > 10) {
+    // Require 15+ debug calls (was 10) — most files have a few logs
+    if (debugCount > 15) {
       const debugName =
         language.primary === 'python'
           ? 'print() statements'
@@ -360,17 +347,14 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
   return { issues, passed };
 }
 
-/**
- * Does this project actually use environment variables?
- */
 async function detectEnvUsage(ctx: RepoContext): Promise<boolean> {
   const patterns: Partial<Record<Language, RegExp>> = {
     typescript: /process\.env\./,
     javascript: /process\.env\./,
-    python: /os\.(environ|getenv)|dotenv|pydantic\.BaseSettings/,
-    ruby: /ENV\[/,
-    go: /os\.Getenv/,
-    rust: /env::var/,
+    python: /os\.(environ|getenv)|dotenv|pydantic\.BaseSettings|settings\./,
+    ruby: /ENV\[|Rails\.application\.config/,
+    go: /os\.Getenv|os\.LookupEnv/,
+    rust: /env::var|std::env/,
     php: /getenv\(|\$_ENV/,
   };
 
@@ -379,7 +363,7 @@ async function detectEnvUsage(ctx: RepoContext): Promise<boolean> {
 
   const sample = ctx.files
     .filter((f) => ctx.lang.sourceExtensions.test(f))
-    .filter((f) => !shouldSkipEntirely(f))
+    .filter((f) => !skipAll(f))
     .slice(0, 30);
 
   for (const f of sample) {

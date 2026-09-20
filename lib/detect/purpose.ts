@@ -16,30 +16,37 @@ export interface PurposeDetection {
 }
 
 /**
- * Determine WHY this repo exists — separate from what it technically is.
+ * Determine WHY this repo exists.
  *
- * A Python "30 days of X" repo and a Python SaaS app are both `library` and
- * `web-app` respectively on the type axis, but their purpose is completely
- * different. The first shouldn't be checked for privacy policies; the second
- * should.
+ * Only analyzes the first 1000 chars of the README. The top is where
+ * intent lives — the rest is usually docs, tutorials, API reference.
  */
 export function detectPurpose(
   readme: string,
   projectType: ProjectType,
   fileCount: number
 ): PurposeDetection {
-  const text = readme.toLowerCase();
+  const fullText = readme ?? '';
+  const text = fullText.slice(0, 1000).toLowerCase();
   const signals: string[] = [];
 
   // ---------------------------------------------------------------------------
-  // Learning / curriculum
+  // Docs type → docs purpose (locked)
+  // ---------------------------------------------------------------------------
+  if (projectType === 'docs') {
+    signals.push('project type is docs');
+    return { purpose: 'docs', confidence: 0.95, signals };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 1. Learning — needs 2+ strong signals
   // ---------------------------------------------------------------------------
   const learningSignals = [
-    /\b(learn|learning|tutorial|course|curriculum|bootcamp|lesson|chapter|exercise|practice|training)\b/i,
-    /\b\d+\s*(day|week|month)s?\s+of\b/i,                       // "30 days of X"
-    /\b(challenge|workshop|guide|walkthrough|step.by.step)\b/i,
-    /\b(follow along|clone and run|for beginners|getting started with)\b/i,
-    /\b(how to|learn to|teach|study)\b/i,
+    /\b\d+\s*(day|week|month)s?\s+of\b/i,
+    /\b(learn|learning) (python|javascript|react|programming|to code|rust|go)\b/i,
+    /\b(tutorial series|course materials|curriculum|bootcamp|course)\b/i,
+    /\b(for beginners|beginner['']?s? (guide|tutorial))\b/i,
+    /\bhands[- ]on (tutorial|guide|course)\b/i,
   ];
   const learningHits = learningSignals.filter((r) => r.test(text)).length;
   if (learningHits >= 2) {
@@ -48,13 +55,12 @@ export function detectPurpose(
   }
 
   // ---------------------------------------------------------------------------
-  // Portfolio / personal site
+  // 2. Portfolio — needs 2+
   // ---------------------------------------------------------------------------
   const portfolioSignals = [
-    /\b(portfolio|personal (site|website|blog)|my (site|website|blog|project))\b/i,
+    /\b(portfolio|personal (site|website|blog)|my (site|website|blog))\b/i,
     /\b(showcase|projects? i('ve| have) (built|made|worked on))\b/i,
     /\b(about me|hire me|resume|curriculum vitae)\b/i,
-    /\b(built with .*(next|astro|svelte|gatsby|hugo))/i,
   ];
   const portfolioHits = portfolioSignals.filter((r) => r.test(text)).length;
   if (portfolioHits >= 2) {
@@ -63,21 +69,7 @@ export function detectPurpose(
   }
 
   // ---------------------------------------------------------------------------
-  // Docs / knowledge base
-  // ---------------------------------------------------------------------------
-  const docsSignals = [
-    /\b(documentation|docs|wiki|knowledge base|handbook|reference)\b/i,
-    /\b(api reference|getting started|installation guide)\b/i,
-    /\b(docusaurus|vitepress|mkdocs|readthedocs|gitbook)\b/i,
-  ];
-  const docsHits = docsSignals.filter((r) => r.test(text)).length;
-  if (docsHits >= 2) {
-    signals.push(`${docsHits} docs signals`);
-    return { purpose: 'docs', confidence: 0.85, signals };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Boilerplate / starter template
+  // 3. Boilerplate — needs 2+
   // ---------------------------------------------------------------------------
   const boilerplateSignals = [
     /\b(boilerplate|starter|template|scaffold|kickstart|skeleton)\b/i,
@@ -91,56 +83,59 @@ export function detectPurpose(
   }
 
   // ---------------------------------------------------------------------------
-  // Experiment / scratch
+  // 4. Product — checked before experiment
+  // ---------------------------------------------------------------------------
+  const productSignals = [
+    /\b(sign up|signup|log in|login|dashboard|pricing|subscription|saas|free trial)\b/i,
+    /\b(users|accounts|customers|teams|organizations|workspaces)\b/i,
+    /\b(get started|try it now|scan your|paste a|your app)\b/i,
+    /\b(privacy policy|terms of service)\b/i,
+    /\b(framework|library|sdk|package|toolkit|api)\b/i,
+    /\b(production[- ]ready|high[- ]performance|fast|secure|reliable|modern)\b/i,
+  ];
+  const productHits = productSignals.filter((r) => r.test(text)).length;
+
+  const isProductType =
+    projectType === 'web-app' ||
+    projectType === 'api-service' ||
+    projectType === 'mobile-app' ||
+    projectType === 'library' ||
+    projectType === 'cli-tool';
+
+  if (productHits >= 1 && isProductType) {
+    signals.push(`${productHits} product signals`);
+    return { purpose: 'product', confidence: 0.8, signals };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. Experiment — needs 2+
   // ---------------------------------------------------------------------------
   const experimentSignals = [
-    /\b(experiment|experimental|scratch|playground|sandbox|prototype|poc|proof of concept)\b/i,
-    /\b(just (testing|playing)|random|misc|assorted)\b/i,
+    /\b(experiment(al)? (project|repo|codebase|thing))\b/i,
+    /\b(scratch|playground|sandbox|just testing|misc|assorted)\b/i,
+    /\bpoc\b/i,
+    /\bproof[- ]of[- ]concept\b/i,
   ];
   const experimentHits = experimentSignals.filter((r) => r.test(text)).length;
-  if (experimentHits >= 1) {
+  if (experimentHits >= 2) {
     signals.push(`${experimentHits} experiment signals`);
     return { purpose: 'experiment', confidence: 0.8, signals };
   }
 
   // ---------------------------------------------------------------------------
-  // Product / SaaS — the default when it looks like a real thing
+  // 6. Fallbacks — prefer product for anything with real code
   // ---------------------------------------------------------------------------
-  const productSignals = [
-    /\b(sign up|signup|log in|login|dashboard|pricing|subscription|saas|paid|free trial)\b/i,
-    /\b(users|accounts|customers|teams|organizations|workspaces)\b/i,
-    /\b(privacy policy|terms of service|paid plan)\b/i,
-  ];
-  const productHits = productSignals.filter((r) => r.test(text)).length;
-
-  if (
-    productHits >= 2 &&
-    (projectType === 'web-app' || projectType === 'api-service' || projectType === 'mobile-app')
-  ) {
-    signals.push(`${productHits} product signals`);
-    return { purpose: 'product', confidence: 0.85, signals };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Fallbacks
-  // ---------------------------------------------------------------------------
-
-  // Small repos with no signals → likely an experiment
-  if (fileCount < 30 && text.length < 500) {
-    signals.push('small repo, minimal README');
-    return { purpose: 'experiment', confidence: 0.6, signals };
-  }
-
-  // Web app or mobile app with no learning/portfolio signals → treat as product
-  if (projectType === 'web-app' || projectType === 'mobile-app') {
-    signals.push('web/mobile type with no counter-signals');
+  if (projectType === 'library' || projectType === 'cli-tool') {
+    signals.push('library/cli — default to product');
     return { purpose: 'product', confidence: 0.6, signals };
   }
-
-  // Library / CLI with no learning signals → boilerplate-adjacent, treat as product
-  if (projectType === 'library' || projectType === 'cli-tool') {
-    signals.push('library/cli type — general expectations');
-    return { purpose: 'product', confidence: 0.5, signals };
+  if (isProductType) {
+    signals.push('app-like type — default to product');
+    return { purpose: 'product', confidence: 0.6, signals };
+  }
+  if (fileCount < 20 && fullText.length < 400) {
+    signals.push('small repo, minimal README');
+    return { purpose: 'experiment', confidence: 0.6, signals };
   }
 
   signals.push('no strong signals');

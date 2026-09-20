@@ -1,14 +1,6 @@
 import { Issue, RepoContext } from '../types';
 import { ProjectPurpose } from '../detect/purpose';
 
-/**
- * Vibecoded fingerprint patterns.
- *
- * Note: Python print(), Ruby puts, and Go fmt.Println were removed from this
- * file — those are now handled exclusively by hygiene.console, which is
- * language-aware, purpose-aware, and directory-aware. Duplicating them here
- * caused the same issue to appear twice in reports.
- */
 const PATTERNS: Array<{
   id: string;
   severity: Issue['severity'];
@@ -19,7 +11,7 @@ const PATTERNS: Array<{
   category?: Issue['category'];
 }> = [
   // ---------------------------------------------------------------------------
-  // Universal
+  // Universal — apply to any language
   // ---------------------------------------------------------------------------
   {
     id: 'sig.lorem',
@@ -28,7 +20,9 @@ const PATTERNS: Array<{
     description:
       'Filler content is still in the app. This is THE vibecoded tell.',
     fix: 'Replace all placeholder copy with real content.',
-    test: /\b(lorem ipsum|your text here|insert your|your company name|your tagline)\b/i,
+    // Requires explicit bracketed placeholder syntax. Won't match "example.com"
+    // in a form label or "your company name" in a contact form heading.
+    test: /(\[your (company|product|name|text)\]|\blorem ipsum\b|\byour text here\b|\binsert your (text|content|tagline|headline)\b)/i,
   },
   {
     id: 'sig.localhost',
@@ -37,7 +31,8 @@ const PATTERNS: Array<{
     description:
       'Will break in production. Fetch calls to `localhost:3000` fail on your deployed app.',
     fix: 'Use env vars: `process.env.API_URL` (JS), `os.getenv("API_URL")` (Python).',
-    test: /["'`]http:\/\/localhost:\d+/,
+    // Require the URL to appear in a fetch/axios/requests call context
+    test: /(fetch|axios|requests?|url)\s*[\(:]\s*["'`]http:\/\/localhost:\d+/i,
   },
   {
     id: 'sig.apikey',
@@ -45,7 +40,7 @@ const PATTERNS: Array<{
     title: 'Possible hardcoded API key',
     description: 'Sketchy string that looks like a key found in source.',
     fix: 'Move to env vars immediately and rotate the key.',
-    test: /(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{30,})/,
+    test: /(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{30,}|AIza[0-9A-Za-z_-]{35})/,
   },
   {
     id: 'sig.builtwith',
@@ -53,7 +48,7 @@ const PATTERNS: Array<{
     title: '"Built with ❤️" footer',
     description: 'Screams template. Unless you mean it, cut it.',
     fix: 'Replace with something specific to your product, or nothing.',
-    test: /built with\s+(❤️|❤|love|next\.js|react|vite|django|flask|rails|laravel)\b/i,
+    test: /built with\s+(❤️|❤|love|next\.js|react|vite|django|flask|rails|laravel|svelte)\b/i,
   },
 
   // ---------------------------------------------------------------------------
@@ -92,11 +87,12 @@ const PATTERNS: Array<{
     description:
       'Emojis as icons (🚀 ✨ 🔥) instead of a real icon set. Looks amateur.',
     fix: 'Use Lucide, Heroicons, or Phosphor. One icon system, everywhere.',
-    test: /(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]\s*){3,}/u,
+    // Require 5+ emoji close together — one or two in copy is fine
+    test: /(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]\s*){5,}/u,
   },
 
   // ---------------------------------------------------------------------------
-  // Python (framework-specific only — print() handled by hygiene.console)
+  // Python — framework-specific
   // ---------------------------------------------------------------------------
   {
     id: 'sig.pyDefault',
@@ -114,7 +110,7 @@ const PATTERNS: Array<{
     description:
       'Django runs with DEBUG=True. This exposes tracebacks, SQL queries, and environment variables to any visitor.',
     fix: 'Set DEBUG to read from an env var: `DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"`.',
-    test: /DEBUG\s*=\s*True/,
+    test: /^\s*DEBUG\s*=\s*True\s*(#|$)/m,
   },
   {
     id: 'sig.pySecretKey',
@@ -125,17 +121,38 @@ const PATTERNS: Array<{
     fix: 'Read SECRET_KEY from an env var. Rotate the key if it was ever committed.',
     test: /SECRET_KEY\s*=\s*['"][a-zA-Z0-9!@#$%^&*()_+\-=]{20,}['"]/,
   },
+
+  // ---------------------------------------------------------------------------
+  // Ruby / Rails
+  // ---------------------------------------------------------------------------
+  {
+    id: 'sig.railsSecret',
+    severity: 'critical',
+    title: 'Rails secret_key_base hardcoded',
+    description:
+      'Rails secret_key_base is set directly in the source. Rotate immediately.',
+    fix: 'Read from Rails credentials or an env var.',
+    test: /secret_key_base\s*[:=]\s*['"][a-f0-9]{40,}['"]/,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Node.js — server-side
+  // ---------------------------------------------------------------------------
+  {
+    id: 'sig.nodeSecret',
+    severity: 'critical',
+    title: 'Hardcoded secret in JS/TS source',
+    description:
+      'A hardcoded value is assigned to a variable named "secret", "password", or "token".',
+    fix: 'Move to env vars immediately and rotate the value.',
+    test: /(secret|password|api_?key|access_?token)\s*[:=]\s*['"][a-zA-Z0-9_\-!@#$%^&*]{20,}['"]/i,
+  },
 ];
 
-// Patterns to skip per purpose
+// Patterns skipped per purpose
 const PURPOSE_SKIP: Record<ProjectPurpose, string[]> = {
   product: [],
-  learning: [
-    'sig.pyDefault',
-    'sig.lorem',
-    'sig.builtwith',
-    'sig.emoji',
-  ],
+  learning: ['sig.pyDefault', 'sig.lorem', 'sig.builtwith', 'sig.emoji'],
   portfolio: ['sig.builtwith'],
   docs: ['sig.lorem', 'sig.emoji'],
   boilerplate: ['sig.lorem', 'sig.pyDefault'],
@@ -143,8 +160,7 @@ const PURPOSE_SKIP: Record<ProjectPurpose, string[]> = {
   unknown: [],
 };
 
-// Directories to never scan
-const EXCLUDED_PATH_FRAGMENTS = [
+const EXCLUDED = [
   'node_modules/',
   '.next/',
   'dist/',
@@ -159,7 +175,6 @@ const EXCLUDED_PATH_FRAGMENTS = [
   'privacy/page',
   'terms/page',
   'LoadingScan',
-  // Test fixtures and benchmarks
   'bench/',
   'benchmark/',
   'benchmarks/',
@@ -170,11 +185,12 @@ const EXCLUDED_PATH_FRAGMENTS = [
   '.test.',
   '.spec.',
   '.github/',
+  'coverage/',
 ];
 
-function isScannableFile(path: string, ctx: RepoContext): boolean {
+function isScannable(path: string, ctx: RepoContext): boolean {
   if (!ctx.lang.sourceExtensions.test(path)) return false;
-  return !EXCLUDED_PATH_FRAGMENTS.some((frag) => path.includes(frag));
+  return !EXCLUDED.some((frag) => path.includes(frag));
 }
 
 export async function checkSignatures(ctx: RepoContext): Promise<{
@@ -189,7 +205,7 @@ export async function checkSignatures(ctx: RepoContext): Promise<{
     purpose ? PURPOSE_SKIP[purpose] ?? [] : []
   );
 
-  const sourceFiles = ctx.files.filter((f) => isScannableFile(f, ctx));
+  const sourceFiles = ctx.files.filter((f) => isScannable(f, ctx));
   const sample = sourceFiles.slice(0, 60);
 
   const matchedFiles = new Map<string, string[]>();
