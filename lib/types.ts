@@ -1,6 +1,10 @@
 import type { LanguageDetection } from './detect/language';
 import type { LanguagePack } from './detect/language-packs';
 
+// -----------------------------------------------------------------------------
+// Core types
+// -----------------------------------------------------------------------------
+
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
 export type Category =
@@ -12,6 +16,10 @@ export type Category =
   | 'quality'
   | 'analytics';
 
+// -----------------------------------------------------------------------------
+// Issue
+// -----------------------------------------------------------------------------
+
 export interface Issue {
   id: string;
   category: Category;
@@ -22,6 +30,10 @@ export interface Issue {
   docs?: string;
   affectedFiles?: string[];
 }
+
+// -----------------------------------------------------------------------------
+// RepoContext — everything a check needs to know about the repo
+// -----------------------------------------------------------------------------
 
 export interface RepoContext {
   owner: string;
@@ -35,7 +47,13 @@ export interface RepoContext {
   lang: LanguagePack;
   /** Set by the orchestrator before running checks. */
   projectPurpose?: string;
+  /** Set by the orchestrator before running checks. */
+  projectType?: string;
 }
+
+// -----------------------------------------------------------------------------
+// Scan result
+// -----------------------------------------------------------------------------
 
 export interface ProjectTypeInfo {
   type: string;

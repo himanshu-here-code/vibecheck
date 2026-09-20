@@ -2,7 +2,11 @@ import { Issue, RepoContext } from '../types';
 import { Language } from '../detect/language';
 import { ProjectPurpose } from '../detect/purpose';
 
-const PRINT_FRIENDLY = [
+// =============================================================================
+// Constants
+// =============================================================================
+
+const PRINT_FRIENDLY_DIRS = [
   'examples/',
   'example/',
   'scripts/',
@@ -17,6 +21,8 @@ const PRINT_FRIENDLY = [
   '__tests__/',
   'fixtures/',
   'test-fixtures/',
+  'samples/',
+  'misc/',
   '.github/',
 ];
 
@@ -35,16 +41,37 @@ const BUILD_DIRS = [
   'coverage/',
 ];
 
-function skipPrint(path: string): boolean {
+/**
+ * Is this a test file? Test files contain example code, placeholder data,
+ * and debug output that isn't shipped to users.
+ */
+function isTestFile(path: string): boolean {
   return (
-    PRINT_FRIENDLY.some((d) => path.startsWith(d) || path.includes(`/${d}`)) ||
-    /\.(test|spec)\.[a-z]+$/i.test(path)
+    /_test\.go$/i.test(path) ||
+    /^test_.*\.py$/i.test(path) ||
+    /_test\.py$/i.test(path) ||
+    /Test\.(java|kt)$/i.test(path) ||
+    /\.spec\.(ts|tsx|js|jsx|vue|svelte)$/i.test(path) ||
+    /\.test\.(ts|tsx|js|jsx|vue|svelte)$/i.test(path) ||
+    /_spec\.rb$/i.test(path)
+  );
+}
+
+function skipPrint(path: string): boolean {
+  if (isTestFile(path)) return true;
+  return PRINT_FRIENDLY_DIRS.some(
+    (d) => path.startsWith(d) || path.includes(`/${d}`)
   );
 }
 
 function skipAll(path: string): boolean {
+  if (isTestFile(path)) return true;
   return BUILD_DIRS.some((d) => path.startsWith(d) || path.includes(`/${d}`));
 }
+
+// =============================================================================
+// Main check
+// =============================================================================
 
 export async function checkHygiene(ctx: RepoContext): Promise<{
   issues: Issue[];
@@ -54,22 +81,27 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
   const passed: string[] = [];
   const { language } = ctx;
   const purpose = ctx.projectPurpose as ProjectPurpose | undefined;
+  const projectType = ctx.projectType;
 
   const isLowExpectation =
     purpose === 'learning' ||
     purpose === 'experiment' ||
     purpose === 'docs';
 
+  const isLibrary = projectType === 'library' || projectType === 'cli-tool';
+  const isDocs = projectType === 'docs';
+
   const has = (re: RegExp) => ctx.files.some((f) => re.test(f));
 
-  // ---- .env.example --------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // .env.example
+  // ---------------------------------------------------------------------------
   {
-    const hasEnvExample = has(
-      /\.env\.(example|sample|template|dist)$/i
-    );
+    const hasEnvExample = has(/\.env\.(example|sample|template|dist)$/i);
+
     if (hasEnvExample) {
       passed.push('hygiene.env');
-    } else if (isLowExpectation) {
+    } else if (isLowExpectation || isLibrary || isDocs) {
       passed.push('hygiene.env');
     } else {
       const usesEnv = await detectEnvUsage(ctx);
@@ -89,7 +121,9 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---- .gitignore ----------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // .gitignore
+  // ---------------------------------------------------------------------------
   if (!ctx.fileSet.has('.gitignore')) {
     issues.push({
       id: 'hygiene.gitignore',
@@ -97,14 +131,16 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       severity: 'high',
       title: 'No .gitignore',
       description:
-        'Are you committing node_modules, venv, or .env files? Big red flag.',
-      fix: `Add a .gitignore. Use gitignore.io with your language (${language.primary}) selected.`,
+        'Are you committing node_modules, venv, or .env files?',
+      fix: `Add a .gitignore. Use gitignore.io with "${language.primary}" selected.`,
     });
   } else {
     passed.push('hygiene.gitignore');
   }
 
-  // ---- Committed junk ------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Committed junk
+  // ---------------------------------------------------------------------------
   {
     const junkDirs = [
       'node_modules',
@@ -132,8 +168,8 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
         category: 'hygiene',
         severity: 'critical',
         title: `Committed build artifacts (${topDir}/)`,
-        description: `The \`${topDir}/\` directory is in your repo. Bloats clones, slows CI, can leak environment details.`,
-        fix: `Add \`${topDir}/\` to .gitignore, then run \`git rm -r --cached ${topDir}\` and commit.`,
+        description: `The \`${topDir}/\` directory is committed. Bloats clones, slows CI.`,
+        fix: `Add \`${topDir}/\` to .gitignore, then run \`git rm -r --cached ${topDir}\`.`,
         affectedFiles: [committed],
       });
     } else {
@@ -141,7 +177,9 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---- Committed .env ------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Committed .env
+  // ---------------------------------------------------------------------------
   if (
     ctx.files.some((f) =>
       /^(\.env|\.env\.local|\.env\.production|\.env\.development)$/.test(f)
@@ -152,19 +190,17 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       category: 'hygiene',
       severity: 'critical',
       title: '.env file committed to repo',
-      description:
-        'Your secrets may be public. Anyone who forks this repo has your API keys.',
-      fix:
-        'Remove .env from git, add it to .gitignore, and rotate any exposed keys.',
+      description: 'Your secrets are public. Anyone who forks has your API keys.',
+      fix: 'Remove .env from git, add to .gitignore, and rotate every key.',
     });
   } else {
     passed.push('hygiene.envcommitted');
   }
 
-  // ---- README --------------------------------------------------------------
-  const readme = ctx.getFileByPattern(
-    /^README(\.md|\.rst|\.txt)?$/i
-  );
+  // ---------------------------------------------------------------------------
+  // README
+  // ---------------------------------------------------------------------------
+  const readme = ctx.getFileByPattern(/^README(\.md|\.rst|\.txt)?$/i);
   if (!readme) {
     issues.push({
       id: 'hygiene.readme',
@@ -172,13 +208,15 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       severity: 'medium',
       title: 'No README',
       description: 'No one knows what this project is or how to run it.',
-      fix: 'Add a README with: what it is, a screenshot, install steps, and how to run it.',
+      fix: 'Add a README with: what it is, install steps, and how to run it.',
     });
   } else {
     passed.push('hygiene.readme');
   }
 
-  // ---- Package name (JS/TS) ------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // package.json name
+  // ---------------------------------------------------------------------------
   if (language.primary === 'typescript' || language.primary === 'javascript') {
     const pkg = await ctx.getFile('package.json');
     if (pkg) {
@@ -214,7 +252,9 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---- Package name (Python) -----------------------------------------------
+  // ---------------------------------------------------------------------------
+  // pyproject.toml name
+  // ---------------------------------------------------------------------------
   if (language.primary === 'python') {
     for (const manifest of ['pyproject.toml', 'setup.py']) {
       const content = await ctx.getFile(manifest);
@@ -242,13 +282,16 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---- TODO/FIXME ----------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // TODO/FIXME — exclude test files
+  // ---------------------------------------------------------------------------
   if (isLowExpectation) {
     passed.push('hygiene.todos');
   } else {
     const sourceFiles = ctx.files
       .filter((f) => ctx.lang.sourceExtensions.test(f))
-      .filter((f) => !skipAll(f));
+      .filter((f) => !skipAll(f))
+      .filter((f) => !isTestFile(f));
 
     let todoCount = 0;
     const filesWithTodos: string[] = [];
@@ -265,15 +308,16 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       }
     }
 
-    // Require 5+ for a "hygiene" signal (was 3) — real projects have some TODOs
-    if (todoCount > 5) {
+    if (todoCount > 10) {
       issues.push({
         id: 'hygiene.todos',
         category: 'hygiene',
         severity: 'low',
         title: `${todoCount} TODO/FIXME comments`,
-        description: 'Half-finished code shipped. Users hit these eventually.',
-        fix: 'Address or convert to GitHub issues. Then delete the comments.',
+        description:
+          'Comments like TODO and FIXME signal unfinished work.',
+        fix:
+          'Address the TODOs or convert them to GitHub issues. Then delete the comments.',
         affectedFiles: filesWithTodos.slice(0, 5),
       });
     } else {
@@ -281,7 +325,9 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
     }
   }
 
-  // ---- Debug output --------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Debug output — exclude test files, examples, and misc
+  // ---------------------------------------------------------------------------
   if (isLowExpectation) {
     passed.push('hygiene.console');
   } else {
@@ -317,8 +363,7 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
       }
     }
 
-    // Require 15+ debug calls (was 10) — most files have a few logs
-    if (debugCount > 15) {
+    if (debugCount > 20) {
       const debugName =
         language.primary === 'python'
           ? 'print() statements'
@@ -335,7 +380,7 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
         severity: 'low',
         title: `${debugCount}+ ${debugName}`,
         description:
-          'Debug output left in production. Performance + privacy concern.',
+          'Debug output left in production. Performance and privacy concern.',
         fix: 'Remove debug calls or use a logger that strips in production.',
         affectedFiles: filesWithDebugs.slice(0, 5),
       });
@@ -346,6 +391,10 @@ export async function checkHygiene(ctx: RepoContext): Promise<{
 
   return { issues, passed };
 }
+
+// =============================================================================
+// Env usage detection
+// =============================================================================
 
 async function detectEnvUsage(ctx: RepoContext): Promise<boolean> {
   const patterns: Partial<Record<Language, RegExp>> = {

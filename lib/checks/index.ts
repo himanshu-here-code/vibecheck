@@ -29,6 +29,15 @@ const RUNNERS: Record<string, CheckRunner> = {
   quality: checkQuality,
 };
 
+const ALL_CHECKS: string[] = [
+  'legal',
+  'seo',
+  'errors',
+  'hygiene',
+  'signatures',
+  'quality',
+];
+
 export async function runAllChecks(ctx: RepoContext): Promise<
   ScanResult & {
     projectType: ProjectTypeResult;
@@ -36,9 +45,17 @@ export async function runAllChecks(ctx: RepoContext): Promise<
     skippedChecks: string[];
   }
 > {
-  const readme = await ctx.getFile('README.md');
-  const pkg = await ctx.getFile('package.json');
+  // ---------------------------------------------------------------------------
+  // Step 1: Read the README and package.json once
+  // ---------------------------------------------------------------------------
+  const [readme, pkg] = await Promise.all([
+    ctx.getFile('README.md'),
+    ctx.getFile('package.json'),
+  ]);
 
+  // ---------------------------------------------------------------------------
+  // Step 2: Detect type and purpose
+  // ---------------------------------------------------------------------------
   const projectType = detectProjectType(
     readme ?? '',
     pkg,
@@ -53,41 +70,40 @@ export async function runAllChecks(ctx: RepoContext): Promise<
     ctx.files.length
   );
 
+  // Attach to ctx so downstream checks can read them without extra args
   ctx.projectPurpose = projectPurpose.purpose;
+  ctx.projectType = projectType.type;
 
-  const enabledChecks: string[] = resolveChecks(
-    projectType.type,
-    projectPurpose.purpose
-  );
+  // ---------------------------------------------------------------------------
+  // Step 3: Resolve which checks to run
+  // ---------------------------------------------------------------------------
+  const enabledChecks = resolveChecks(projectType.type, projectPurpose.purpose);
+  const skippedChecks = ALL_CHECKS.filter((c) => !enabledChecks.includes(c));
 
-  const allChecks: string[] = [
-    'legal',
-    'seo',
-    'errors',
-    'hygiene',
-    'signatures',
-    'quality',
-  ];
-  const skippedChecks: string[] = allChecks.filter(
-    (c: string) => !enabledChecks.includes(c)
-  );
-
+  // ---------------------------------------------------------------------------
+  // Step 4: Run enabled checks in parallel
+  // ---------------------------------------------------------------------------
   const results = await Promise.all(
-    enabledChecks.map((name: string) => RUNNERS[name](ctx))
+    enabledChecks.map((name) => RUNNERS[name](ctx))
   );
 
+  // ---------------------------------------------------------------------------
+  // Step 5: Aggregate issues and passed checks
+  // ---------------------------------------------------------------------------
   const issues: Issue[] = results
-    .flatMap((r: { issues: Issue[]; passed: string[] }) => r.issues)
-    .sort((a: Issue, b: Issue) => WEIGHTS[b.severity] - WEIGHTS[a.severity]);
+    .flatMap((r) => r.issues)
+    .sort((a, b) => WEIGHTS[b.severity] - WEIGHTS[a.severity]);
 
-  const passed: string[] = results.flatMap(
-    (r: { issues: Issue[]; passed: string[] }) => r.passed
-  );
+  const passed: string[] = results.flatMap((r) => r.passed);
 
-  const rawScore: number = issues.reduce(
-    (sum: number, i: Issue) => sum + WEIGHTS[i.severity],
-    0
-  );
+  // ---------------------------------------------------------------------------
+  // Step 6: Compute score
+  //
+  //    Score is a weighted sum of severities, capped at 100.
+  //    A repo with no issues scores 0 (grade A).
+  //    A repo with only criticals scores high (grade F).
+  // ---------------------------------------------------------------------------
+  const rawScore = issues.reduce((sum, i) => sum + WEIGHTS[i.severity], 0);
   const score = Math.min(100, rawScore);
 
   const grade =

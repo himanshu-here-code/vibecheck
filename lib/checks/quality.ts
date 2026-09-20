@@ -1,19 +1,14 @@
 import { Issue, RepoContext } from '../types';
 
-/**
- * Deeper quality checks — things that make a repo harder to maintain
- * or that indicate scaffolding was never cleaned up.
- *
- * Note: we deliberately do NOT re-check .gitignore here. hygiene.ts
- * handles both missing .gitignore and missing .env patterns. Duplicating
- * that logic caused the same issue to appear twice in reports.
- */
 export async function checkQuality(ctx: RepoContext): Promise<{
   issues: Issue[];
   passed: string[];
 }> {
   const issues: Issue[] = [];
   const passed: string[] = [];
+  const { language } = ctx;
+
+  const isJS = language.primary === 'typescript' || language.primary === 'javascript';
 
   const sourceFiles = ctx.files.filter(
     (f) =>
@@ -22,11 +17,12 @@ export async function checkQuality(ctx: RepoContext): Promise<{
       !f.includes('.next') &&
       !f.includes('dist/') &&
       !f.includes('venv/') &&
-      !f.includes('__pycache__/')
+      !f.includes('__pycache__/') &&
+      !/_test\.go$|_test\.py$|^test_.*\.py$|\.spec\.|\.test\./i.test(f)
   );
 
   const htmlFiles = ctx.files.filter(
-    (f) => /\.html?$/i.test(f) && !f.includes('node_modules')
+    (f) => /\.html?$/i.test(f) && !f.includes('node_modules') && !f.includes('doc/') && !f.includes('docs/')
   );
 
   // ---------------------------------------------------------------------------
@@ -60,9 +56,8 @@ export async function checkQuality(ctx: RepoContext): Promise<{
         severity: 'medium',
         title: `Images missing alt text (${offendingFiles.length} file${offendingFiles.length > 1 ? 's' : ''})`,
         description:
-          'Images without alt text are invisible to screen readers and hurt accessibility. Also bad for SEO.',
-        fix:
-          'Add a descriptive `alt` attribute to every `<img>`. For decorative images, use `alt=""`.',
+          'Images without alt text are invisible to screen readers and hurt accessibility.',
+        fix: 'Add a descriptive `alt` attribute to every `<img>`. For decorative images, use `alt=""`.',
         docs: 'https://web.dev/learn/accessibility/images',
         affectedFiles: offendingFiles.slice(0, 5),
       });
@@ -90,9 +85,9 @@ export async function checkQuality(ctx: RepoContext): Promise<{
         severity: 'medium',
         title: `Multiple lockfiles (${lockfiles.join(', ')})`,
         description:
-          'Multiple lockfiles mean different developers are using different package managers. Causes inconsistent installs across machines and CI.',
+          'Different developers may use different package managers. Inconsistent installs.',
         fix:
-          'Pick one package manager and delete the others. Add the others to .gitignore. Add a `packageManager` field to package.json.',
+          'Pick one package manager and delete the others. Add the others to .gitignore.',
         affectedFiles: lockfiles,
       });
     } else {
@@ -103,7 +98,7 @@ export async function checkQuality(ctx: RepoContext): Promise<{
   // ---------------------------------------------------------------------------
   // 3. No Node version pin (JS/TS only)
   // ---------------------------------------------------------------------------
-  {
+  if (isJS) {
     const pkg = await ctx.getFile('package.json');
     if (pkg) {
       const hasNvmrc = ctx.fileSet.has('.nvmrc');
@@ -117,20 +112,24 @@ export async function checkQuality(ctx: RepoContext): Promise<{
           severity: 'low',
           title: 'No Node version specified',
           description:
-            'New contributors and CI will guess which Node version to use. Different Node versions break different builds.',
+            'New contributors and CI will guess which Node version to use.',
           fix:
             'Add a `.nvmrc` file with your Node version (e.g., `20.11.0`), or add `"engines": { "node": ">=20" }` to package.json.',
         });
       } else {
         passed.push('quality.nodeVersion');
       }
+    } else {
+      passed.push('quality.nodeVersion');
     }
+  } else {
+    passed.push('quality.nodeVersion');
   }
 
   // ---------------------------------------------------------------------------
   // 4. Unused dependencies (JS/TS only)
   // ---------------------------------------------------------------------------
-  {
+  if (isJS) {
     const pkg = await ctx.getFile('package.json');
     if (pkg) {
       try {
@@ -140,41 +139,17 @@ export async function checkQuality(ctx: RepoContext): Promise<{
           ...(data.devDependencies ?? {}),
         });
 
-        // Packages we can never reliably detect as "used" from source code
         const alwaysUsed = new Set([
-          'react',
-          'react-dom',
-          'next',
-          'typescript',
-          'eslint',
-          'prettier',
-          'tailwindcss',
-          '@tailwindcss/postcss',
-          'autoprefixer',
-          'postcss',
-          'eslint-config-next',
-          '@types/node',
-          '@types/react',
-          '@types/react-dom',
-          'tw-animate-css',
-          'shadcn',
-          'clsx',
-          'class-variance-authority',
-          'tailwind-merge',
-          'lucide-react',
-          'framer-motion',
-          'next-themes',
-          'zod',
+          'react', 'react-dom', 'next', 'typescript', 'eslint', 'prettier',
+          'tailwindcss', '@tailwindcss/postcss', 'autoprefixer', 'postcss',
+          'eslint-config-next', '@types/node', '@types/react', '@types/react-dom',
+          'tw-animate-css', 'shadcn', 'clsx', 'class-variance-authority',
+          'tailwind-merge', 'lucide-react', 'framer-motion', 'next-themes', 'zod',
         ]);
 
-        // Packages that are typically used via config or CSS, not JS imports
         const configOnly = [
-          '@tailwindcss/',
-          'eslint-',
-          'prettier-',
-          '@typescript-eslint/',
-          'postcss-',
-          'autoprefixer',
+          '@tailwindcss/', 'eslint-', 'prettier-', '@typescript-eslint/',
+          'postcss-', 'autoprefixer',
         ];
 
         const sampleContent: string[] = [];
@@ -191,7 +166,16 @@ export async function checkQuality(ctx: RepoContext): Promise<{
           if (configOnly.some((prefix) => dep.startsWith(prefix))) continue;
 
           const importRe = new RegExp(
-            `from\\s+['"]${escapeRegex(dep)}(\\/[^'"]*)?['"]|require\\(['"]${escapeRegex(dep)}(\\/[^'"]*)?['"]\\)|@import\\s+['"]${escapeRegex(dep)}`,
+            [
+              // Named imports: import x from 'pkg' or import { x } from 'pkg'
+              `from\\s+['"]${escapeRegex(dep)}(\\/[^'"]*)?['"]`,
+              // Bare imports: import 'pkg' or import 'pkg/subpath' (e.g., CSS)
+              `import\\s+['"]${escapeRegex(dep)}(\\/[^'"]*)?['"]`,
+              // Requires: require('pkg')
+              `require\\(['"]${escapeRegex(dep)}(\\/[^'"]*)?['"]\\)`,
+              // CSS @import
+              `@import\\s+['"]${escapeRegex(dep)}`,
+            ].join('|'),
             'i'
           );
 
@@ -200,34 +184,42 @@ export async function checkQuality(ctx: RepoContext): Promise<{
           }
         }
 
-        // Only flag if we're confident
         if (unused.length >= 3 && unused.length <= 10) {
           issues.push({
             id: 'quality.unusedDeps',
             category: 'quality',
             severity: 'low',
             title: `Possibly unused dependencies (${unused.length})`,
-            description: `These packages are in package.json but we couldn't find them imported in the sampled source files. They may still be used — check before removing.`,
+            description: `These packages are in package.json but we couldn't find them imported in the sampled source files: ${unused.slice(0, 8).join(', ')}.`,
             fix:
-              "Double-check each one. Some packages are used via config files or CSS imports that we can't detect. Remove only the ones you're sure about.",
+              "Double-check each one. Some packages are used via config files or CSS imports that we can't detect.",
             affectedFiles: ['package.json'],
           });
         } else {
           passed.push('quality.unusedDeps');
         }
       } catch {
-        // malformed package.json
+        // malformed
       }
+    } else {
+      passed.push('quality.unusedDeps');
     }
+  } else {
+    passed.push('quality.unusedDeps');
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Massive files
+  // 5. Massive files — excluding docs
   // ---------------------------------------------------------------------------
   {
     const offenders: { file: string; lines: number }[] = [];
 
     for (const f of sourceFiles.slice(0, 60)) {
+      // Only count actual code files
+      if (/\.(html?|md|mdx|rst|txt|css|scss|json)$/i.test(f)) continue;
+      // Skip doc directories
+      if (f.includes('doc/') || f.includes('docs/')) continue;
+
       const content = await ctx.getFile(f);
       if (!content) continue;
       const lines = content.split('\n').length;
@@ -241,8 +233,7 @@ export async function checkQuality(ctx: RepoContext): Promise<{
         severity: 'low',
         title: `Very large source file${offenders.length > 1 ? 's' : ''}`,
         description: `These files exceed 5,000 lines: ${offenders.map((o) => `${o.file} (${o.lines})`).join(', ')}.`,
-        fix:
-          'Split large files into smaller modules by responsibility. 500-800 lines is a reasonable ceiling.',
+        fix: 'Split large files into smaller modules by responsibility.',
         affectedFiles: offenders.slice(0, 5).map((o) => o.file),
       });
     } else {
@@ -251,7 +242,7 @@ export async function checkQuality(ctx: RepoContext): Promise<{
   }
 
   // ---------------------------------------------------------------------------
-  // 6. TODO/FIXME density
+  // 6. TODO/FIXME density (excluding test files)
   // ---------------------------------------------------------------------------
   {
     const offenders: { file: string; count: number }[] = [];
@@ -270,10 +261,8 @@ export async function checkQuality(ctx: RepoContext): Promise<{
         category: 'quality',
         severity: 'low',
         title: `${total} TODO/FIXME comments across ${offenders.length} file${offenders.length > 1 ? 's' : ''}`,
-        description:
-          'Comments like TODO and FIXME signal unfinished work. Fine while developing, not in a shipped product.',
-        fix:
-          'Address the TODOs or convert them to GitHub issues. Then delete the comments.',
+        description: 'Comments like TODO and FIXME signal unfinished work.',
+        fix: 'Address the TODOs or convert them to GitHub issues.',
         affectedFiles: offenders.slice(0, 5).map((o) => o.file),
       });
     } else {
