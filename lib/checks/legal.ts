@@ -1,23 +1,12 @@
 import { Issue, RepoContext } from '../types';
-
-/**
- * Legal & Trust checks.
- *
- * Instead of relying on filenames alone, we inspect file *content* for the
- * language that privacy policies, terms, and contact pages actually use.
- *
- * Why: a file called `pp.tsx` is a privacy policy. A file called
- * `privacy.tsx` that contains "Coming soon" is not.
- */
+import type { ProjectPurpose } from '../detect/purpose';
 
 // -----------------------------------------------------------------------------
-// Content signature helpers
+// Content signatures
 // -----------------------------------------------------------------------------
 
-/** Strong signals that a file is a real privacy policy. */
 function looksLikePrivacyPolicy(content: string): boolean {
   const text = content.toLowerCase();
-  // Must have at least 2 of these to count — one could be a stray word
   const signals = [
     /we (collect|process|store|handle|share) (your|personal|user)/i,
     /(gdpr|ccpa|california consumer privacy)/i,
@@ -29,7 +18,6 @@ function looksLikePrivacyPolicy(content: string): boolean {
   return signals.filter((r) => r.test(text)).length >= 2;
 }
 
-/** Strong signals that a file is a real terms of service. */
 function looksLikeTerms(content: string): boolean {
   const text = content.toLowerCase();
   const signals = [
@@ -43,59 +31,53 @@ function looksLikeTerms(content: string): boolean {
   return signals.filter((r) => r.test(text)).length >= 2;
 }
 
-/** Is this a real contact page (as opposed to a nav item)? */
 function looksLikeContactPage(content: string): boolean {
   const text = content.toLowerCase();
   const signals = [
     /(get in touch|contact us|reach out|say hi|say hello)/i,
     /(email|mail) us at/i,
-    /@[a-z0-9-]+\.[a-z]{2,}/i, // has an actual email address
-    /(github\.com\/|mailto:|twitter\.com\/|x\.com\/)/i, // has a real contact link
+    /@[a-z0-9-]+\.[a-z]{2,}/i,
+    /(github\.com\/|mailto:|twitter\.com\/|x\.com\/)/i,
   ];
   return signals.filter((r) => r.test(text)).length >= 2;
 }
 
-// -----------------------------------------------------------------------------
-// Multi-file detection
-// -----------------------------------------------------------------------------
-
-/**
- * Scan candidate files for a content signature.
- *
- * @param ctx       The repo context
- * @param filenameRe  Which files are worth opening (loose match)
- * @param signature   The content test to run
- * @param maxFiles    Upper limit on files to open (rate-limit safety)
- */
 async function findFileWithContent(
   ctx: RepoContext,
-  filenameRe: RegExp,
+  candidates: RegExp[],
   signature: (c: string) => boolean,
-  maxFiles = 25
+  maxFiles = 30
 ): Promise<string | null> {
-  // Look for both filename matches AND common content files
-  const candidates = ctx.files
-    .filter((f) => !f.includes('node_modules') && !f.includes('.next'))
-    .filter((f) => /\.(tsx?|jsx?|vue|svelte|mdx?|html)$/i.test(f))
-    .filter(
-      (f) =>
-        filenameRe.test(f) ||
-        // Also open likely locations even if the filename doesn't match
-        /(^|\/)(pages?|app|routes?|legal|about)\//i.test(f)
-    )
-    .slice(0, maxFiles);
+  const matches = ctx.files.filter(
+    (f) =>
+      !f.includes('node_modules') &&
+      !f.includes('.next') &&
+      !f.includes('venv/') &&
+      !f.includes('__pycache__/') &&
+      candidates.some((rx) => rx.test(f))
+  );
 
-  for (const f of candidates) {
+  for (const f of matches.slice(0, maxFiles)) {
     const content = await ctx.getFile(f);
-    if (content && signature(content)) {
-      return f;
-    }
+    if (content && signature(content)) return f;
   }
+
+  // Fallback: scan source extension files
+  const sourceMatches = ctx.files
+    .filter((f) => ctx.lang.sourceExtensions.test(f))
+    .filter((f) => !f.includes('node_modules') && !f.includes('venv/'))
+    .slice(0, 15);
+
+  for (const f of sourceMatches) {
+    const content = await ctx.getFile(f);
+    if (content && signature(content)) return f;
+  }
+
   return null;
 }
 
 // -----------------------------------------------------------------------------
-// The check
+// Check
 // -----------------------------------------------------------------------------
 
 export async function checkLegal(ctx: RepoContext): Promise<{
@@ -104,11 +86,34 @@ export async function checkLegal(ctx: RepoContext): Promise<{
 }> {
   const issues: Issue[] = [];
   const passed: string[] = [];
+  const { lang, language } = ctx;
+  const purpose = ctx.projectPurpose as ProjectPurpose | undefined;
+
+  // -----------------------------------------------------------------------
+  // Legal checks apply only to projects that actually face end users:
+  // products, templates, and portfolios. Libraries, CLIs, docs, learning
+  // repos, and experiments don't collect user data and don't need them.
+  // -----------------------------------------------------------------------
+  const LEGAL_APPLIES: ProjectPurpose[] = [
+    'product',
+    'boilerplate',
+    'portfolio',
+  ];
+
+  if (!purpose || !LEGAL_APPLIES.includes(purpose)) {
+    // Silently pass all legal checks — they don't apply here
+    passed.push('legal.privacy');
+    passed.push('legal.terms');
+    passed.push('legal.cookies');
+    passed.push('legal.license');
+    passed.push('legal.contact');
+    return { issues, passed };
+  }
 
   // ---- Privacy policy ------------------------------------------------------
   const privacyFile = await findFileWithContent(
     ctx,
-    /(privacy|^pp\.|[/_-]pp\.|legal)/i,
+    lang.privacyCandidates,
     looksLikePrivacyPolicy
   );
 
@@ -118,10 +123,9 @@ export async function checkLegal(ctx: RepoContext): Promise<{
       category: 'legal',
       severity: 'critical',
       title: 'No privacy policy',
-      description:
-        'We couldn\u2019t find any file that reads like a real privacy policy. If you collect any user data — analytics, auth, payments — this is legally required in the EU, UK, and California.',
+      description: `We couldn\u2019t find a privacy policy in this ${language.primary} project. If you collect any user data — analytics, auth, payments — this is legally required in the EU, UK, and California.`,
       fix:
-        'Add a `/privacy` page with a policy covering: what data you collect, how it\u2019s used, third parties involved, user rights, and a contact method. A generator like termly.io works fine.',
+        'Add a privacy page with a policy covering: what data you collect, how it\u2019s used, third parties involved, user rights, and a contact method.',
       docs: 'https://gdpr.eu/privacy-notice/',
     });
   } else {
@@ -131,7 +135,7 @@ export async function checkLegal(ctx: RepoContext): Promise<{
   // ---- Terms of service ----------------------------------------------------
   const termsFile = await findFileWithContent(
     ctx,
-    /(terms|tos|^tos\.|legal)/i,
+    lang.termsCandidates,
     looksLikeTerms
   );
 
@@ -144,19 +148,18 @@ export async function checkLegal(ctx: RepoContext): Promise<{
       description:
         'No file reads like real terms. You need these to define acceptable use, limit liability, and handle account termination.',
       fix:
-        'Add a `/terms` page. Link it in the footer and in your signup flow. Cover: acceptable use, account rules, IP ownership, liability limits, and governing law.',
+        'Add a terms page. Link it in the footer and in your signup flow.',
     });
   } else {
     passed.push('legal.terms');
   }
 
   // ---- Cookie consent ------------------------------------------------------
-  // Only check if there's actual tracking in the codebase
   const hasTracking = await detectTracking(ctx);
   if (hasTracking) {
     const cookieFile = await findFileWithContent(
       ctx,
-      /cookie|consent|gdpr/i,
+      [/cookie/i, /consent/i, /gdpr/i],
       (c) =>
         /(cookie (consent|banner|policy)|accept (all )?cookies|gdpr (consent|banner))/i.test(
           c
@@ -170,17 +173,21 @@ export async function checkLegal(ctx: RepoContext): Promise<{
         severity: 'high',
         title: 'Tracking detected, but no cookie consent',
         description:
-          'We found analytics or tracking code, but no consent banner. GDPR requires opt-in for tracking cookies.',
+          'We found analytics or tracking code that sets cookies, but no consent banner. GDPR requires opt-in for tracking cookies.',
         fix:
-          'Add a cookie consent component. `react-cookie-consent` is free and works with any framework.',
+          'Add a cookie consent component. Options exist for every language.',
       });
     } else {
       passed.push('legal.cookies');
     }
+  } else {
+    passed.push('legal.cookies');
   }
 
   // ---- License -------------------------------------------------------------
-  const hasLicense = ctx.files.some((f) => /(^|\/)LICENSE(\.|$)/i.test(f));
+  const hasLicense = ctx.files.some((f) =>
+    /(^|\/)(LICENSE|LICENCE|COPYING)(\.|$)/i.test(f)
+  );
   if (!hasLicense) {
     issues.push({
       id: 'legal.license',
@@ -199,7 +206,7 @@ export async function checkLegal(ctx: RepoContext): Promise<{
   // ---- Contact -------------------------------------------------------------
   const contactFile = await findFileWithContent(
     ctx,
-    /contact/i,
+    lang.contactCandidates,
     looksLikeContactPage,
     15
   );
@@ -212,7 +219,7 @@ export async function checkLegal(ctx: RepoContext): Promise<{
       description:
         'Users need a way to reach you. Payment processors and app stores also require this.',
       fix:
-        'Add a `/contact` page, a mailto link in your footer, or a clearly linked GitHub issues URL.',
+        'Add a contact page, a mailto link in your footer, or a clearly linked GitHub issues URL.',
     });
   } else {
     passed.push('legal.contact');
@@ -222,41 +229,84 @@ export async function checkLegal(ctx: RepoContext): Promise<{
 }
 
 // -----------------------------------------------------------------------------
-// Helper: does the repo actually track anything?
+// Tracking detection
 // -----------------------------------------------------------------------------
 
 async function detectTracking(ctx: RepoContext): Promise<boolean> {
+  const trackingLibs = [
+    'posthog',
+    'mixpanel',
+    'amplitude',
+    'hotjar',
+    'gtag',
+    'googletagmanager',
+    'matomo',
+    '@segment/',
+    'analytics-next',
+    'sentry',
+    'datadog',
+    'newrelic',
+  ];
+
+  // JS/TS: parse package.json, check dependency NAMES
   const pkg = await ctx.getFile('package.json');
   if (pkg) {
-    const trackingLibs = [
-      'analytics',
-      'posthog',
-      'mixpanel',
-      'amplitude',
-      'hotjar',
-      'gtag',
-      'plausible',
-      'umami',
-      'matomo',
-      'segment',
-    ];
-    const lower = pkg.toLowerCase();
-    if (trackingLibs.some((lib) => lower.includes(lib))) return true;
-  }
-  // Look for tracking in the actual source
-  const sample = ctx.files
-    .filter((f) => /\.(tsx?|jsx?|html)$/i.test(f) && !f.includes('node_modules'))
-    .slice(0, 20);
-  for (const f of sample) {
-    const c = await ctx.getFile(f);
-    if (!c) continue;
-    if (
-      /(gtag|googletagmanager|plausible\.io|posthog\.|mixpanel\.|hotjar\.|@vercel\/analytics|umami\.)/i.test(
-        c
-      )
-    ) {
-      return true;
+    try {
+      const data = JSON.parse(pkg);
+      const deps = Object.keys({
+        ...(data.dependencies ?? {}),
+        ...(data.devDependencies ?? {}),
+      }).map((d) => d.toLowerCase());
+
+      for (const lib of trackingLibs) {
+        if (deps.some((d) => d.includes(lib))) return true;
+      }
+    } catch {
+      // malformed package.json
     }
   }
+
+  // Python manifests
+  const pyManifests = ['requirements.txt', 'Pipfile'];
+  for (const manifest of pyManifests) {
+    const content = await ctx.getFile(manifest);
+    if (!content) continue;
+    const lines = content.toLowerCase().split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      for (const lib of trackingLibs) {
+        if (trimmed.startsWith(lib) || trimmed.includes(`/${lib}`)) return true;
+      }
+    }
+  }
+
+  // Source-level: look for actual API calls (not comments)
+  const sourceSample = ctx.files
+    .filter((f) => ctx.lang.sourceExtensions.test(f))
+    .filter(
+      (f) =>
+        !f.includes('node_modules') &&
+        !f.includes('venv/') &&
+        !f.includes('__pycache__/')
+    )
+    .slice(0, 25);
+
+  const usagePatterns = [
+    /gtag\s*\(/,
+    /googletagmanager\.com\/gtag/i,
+    /posthog\.(capture|identify)\s*\(/,
+    /mixpanel\.(track|identify)\s*\(/,
+    /hotjar\./i,
+    /hj\s*\(/,
+    /_paq\.push/,
+  ];
+
+  for (const f of sourceSample) {
+    const c = await ctx.getFile(f);
+    if (!c) continue;
+    if (usagePatterns.some((rx) => rx.test(c))) return true;
+  }
+
   return false;
 }

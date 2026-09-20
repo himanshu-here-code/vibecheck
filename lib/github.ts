@@ -1,4 +1,6 @@
 import { RepoContext } from './types';
+import { detectLanguages } from './detect/language';
+import { LANGUAGE_PACKS } from './detect/language-packs';
 
 const GH = 'https://api.github.com';
 
@@ -7,7 +9,6 @@ function headers() {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'vibecheck',
   };
-  // Optional: set GITHUB_TOKEN env var for 5000 req/hr instead of 60
   if (process.env.GITHUB_TOKEN) {
     h.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   }
@@ -16,7 +17,6 @@ function headers() {
 
 export function parseRepoUrl(input: string): { owner: string; repo: string } | null {
   const cleaned = input.trim().replace(/\.git$/, '').replace(/\/$/, '');
-  // Accept: owner/repo, github.com/owner/repo, https://github.com/owner/repo
   const patterns = [
     /^([\w.-]+)\/([\w.-]+)$/,
     /github\.com\/([\w.-]+)\/([\w.-]+)/,
@@ -28,12 +28,25 @@ export function parseRepoUrl(input: string): { owner: string; repo: string } | n
   return null;
 }
 
+/**
+ * URL-encode each segment of a repo path. Fixes fetches for paths
+ * containing spaces, #, ?, and other characters that break raw URLs.
+ */
+function encodeRepoPath(path: string): string {
+  return path
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
 export async function buildRepoContext(
   owner: string,
   repo: string
 ): Promise<RepoContext> {
-  // 1. Get repo metadata
-  const repoRes = await fetch(`${GH}/repos/${owner}/${repo}`, { headers: headers() });
+  // 1. Repo metadata
+  const repoRes = await fetch(`${GH}/repos/${owner}/${repo}`, {
+    headers: headers(),
+  });
   if (!repoRes.ok) {
     throw new Error(
       repoRes.status === 404
@@ -44,9 +57,9 @@ export async function buildRepoContext(
   const repoData = await repoRes.json();
   const branch = repoData.default_branch;
 
-  // 2. Get full file tree
+  // 2. File tree
   const treeRes = await fetch(
-    `${GH}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
+    `${GH}/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
     { headers: headers() }
   );
   if (!treeRes.ok) throw new Error(`Tree fetch failed: ${treeRes.status}`);
@@ -58,7 +71,7 @@ export async function buildRepoContext(
 
   const fileSet = new Set(files);
 
-  // 3. File content getter (raw.githubusercontent is free & no rate limit issues)
+  // 3. Cached file fetcher with URL encoding
   const cache = new Map<string, string | null>();
   const getFile = async (path: string): Promise<string | null> => {
     if (cache.has(path)) return cache.get(path)!;
@@ -67,15 +80,16 @@ export async function buildRepoContext(
       return null;
     }
     try {
+      const encodedPath = encodeRepoPath(path);
+      const encodedBranch = encodeURIComponent(branch);
       const res = await fetch(
-        `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`
+        `https://raw.githubusercontent.com/${owner}/${repo}/${encodedBranch}/${encodedPath}`
       );
       if (!res.ok) {
         cache.set(path, null);
         return null;
       }
       const text = await res.text();
-      // Skip huge files
       const val = text.length > 500_000 ? text.slice(0, 500_000) : text;
       cache.set(path, val);
       return val;
@@ -89,5 +103,19 @@ export async function buildRepoContext(
     return files.find((f) => re.test(f)) ?? null;
   };
 
-  return { owner, repo, branch, files, fileSet, getFile, getFileByPattern };
+  // 4. Language detection
+  const language = detectLanguages(files);
+  const lang = LANGUAGE_PACKS[language.primary];
+
+  return {
+    owner,
+    repo,
+    branch,
+    files,
+    fileSet,
+    getFile,
+    getFileByPattern,
+    language,
+    lang,
+  };
 }

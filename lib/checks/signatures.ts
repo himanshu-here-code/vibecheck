@@ -1,12 +1,13 @@
 import { Issue, RepoContext } from '../types';
+import { ProjectPurpose } from '../detect/purpose';
 
 /**
- * Patterns that define the "vibecoded signature" checks.
+ * Vibecoded fingerprint patterns.
  *
- * When adding a new pattern:
- *   1. Test it against 5+ real repos before shipping
- *   2. If it can match the check file itself, exclude that file (see sourceFiles filter below)
- *   3. Prefer specific matches over broad ones — a false positive is worse than a missed signal
+ * Note: Python print(), Ruby puts, and Go fmt.Println were removed from this
+ * file — those are now handled exclusively by hygiene.console, which is
+ * language-aware, purpose-aware, and directory-aware. Duplicating them here
+ * caused the same issue to appear twice in reports.
  */
 const PATTERNS: Array<{
   id: string;
@@ -17,40 +18,17 @@ const PATTERNS: Array<{
   test: RegExp;
   category?: Issue['category'];
 }> = [
+  // ---------------------------------------------------------------------------
+  // Universal
+  // ---------------------------------------------------------------------------
   {
     id: 'sig.lorem',
     severity: 'high',
-    title: 'Placeholder text found ("Lorem ipsum" / "Your text here")',
+    title: 'Placeholder text found',
     description:
       'Filler content is still in the app. This is THE vibecoded tell.',
     fix: 'Replace all placeholder copy with real content.',
-    test: /\b(lorem ipsum|your text here|insert your|your company name|your tagline|example\.com)\b/i,
-  },
-  {
-    id: 'sig.inter',
-    severity: 'low',
-    title: 'Using Inter font',
-    description:
-      'Inter is the AI default. Nothing wrong with it, but it signals "no design decisions were made".',
-    fix: 'Try Geist, Satoshi, or a serif for headings. Or keep Inter but pair it with a distinctive display face.',
-    test: /from\s+['"]next\/font\/google['"][\s\S]{0,300}?\bInter(_Tight|_Display)?\b/,
-  },
-  {
-    id: 'sig.purple',
-    severity: 'medium',
-    title: 'AI-style purple/pink gradient detected',
-    description:
-      'Purple-to-pink gradients are the #1 vibecoded signature. Every AI-built app looks the same.',
-    fix: 'Pick a real brand color. Look at Linear, Vercel, Stripe for restraint. A solid accent beats a gradient every time.',
-    test: /(from-(purple|pink|indigo|violet|fuchsia)-\d+[\s\S]{0,200}?to-(pink|purple|indigo|violet|fuchsia)-\d+)|(bg-gradient-to-[a-z]+[\s\S]{0,100}?from-(purple|pink|indigo|violet|fuchsia))/i,
-  },
-  {
-    id: 'sig.builtwith',
-    severity: 'low',
-    title: '"Built with ❤️" footer',
-    description: 'Screams template. Unless you mean it, cut it.',
-    fix: 'Replace with something specific to your product, or nothing.',
-    test: /built with\s+(❤️|❤|love|next\.js|react|vite)\b/i,
+    test: /\b(lorem ipsum|your text here|insert your|your company name|your tagline)\b/i,
   },
   {
     id: 'sig.localhost',
@@ -58,8 +36,46 @@ const PATTERNS: Array<{
     title: 'Hardcoded localhost URLs',
     description:
       'Will break in production. Fetch calls to `localhost:3000` fail on your deployed app.',
-    fix: 'Use env vars: `process.env.NEXT_PUBLIC_API_URL`.',
+    fix: 'Use env vars: `process.env.API_URL` (JS), `os.getenv("API_URL")` (Python).',
     test: /["'`]http:\/\/localhost:\d+/,
+  },
+  {
+    id: 'sig.apikey',
+    severity: 'critical',
+    title: 'Possible hardcoded API key',
+    description: 'Sketchy string that looks like a key found in source.',
+    fix: 'Move to env vars immediately and rotate the key.',
+    test: /(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{30,})/,
+  },
+  {
+    id: 'sig.builtwith',
+    severity: 'low',
+    title: '"Built with ❤️" footer',
+    description: 'Screams template. Unless you mean it, cut it.',
+    fix: 'Replace with something specific to your product, or nothing.',
+    test: /built with\s+(❤️|❤|love|next\.js|react|vite|django|flask|rails|laravel)\b/i,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Frontend
+  // ---------------------------------------------------------------------------
+  {
+    id: 'sig.inter',
+    severity: 'low',
+    title: 'Using Inter font',
+    description:
+      'Inter is the AI default. Nothing wrong with it, but it signals "no design decisions were made".',
+    fix: 'Try Geist, Satoshi, or a serif for headings.',
+    test: /from\s+['"]next\/font\/google['"][\s\S]{0,300}?\bInter(_Tight|_Display)?\b|font-family\s*:\s*['"]?Inter['"]?/i,
+  },
+  {
+    id: 'sig.purple',
+    severity: 'medium',
+    title: 'AI-style purple/pink gradient detected',
+    description:
+      'Purple-to-pink gradients are the #1 vibecoded signature. Every AI-built app looks the same.',
+    fix: 'Pick a real brand color. A solid accent beats a gradient every time.',
+    test: /(from-(purple|pink|indigo|violet|fuchsia)-\d+[\s\S]{0,200}?to-(pink|purple|indigo|violet|fuchsia)-\d+)|(bg-gradient-to-[a-z]+[\s\S]{0,100}?from-(purple|pink|indigo|violet|fuchsia))/i,
   },
   {
     id: 'sig.dangerous',
@@ -70,14 +86,6 @@ const PATTERNS: Array<{
     test: /dangerouslySetInnerHTML/,
   },
   {
-    id: 'sig.apikey',
-    severity: 'critical',
-    title: 'Possible hardcoded API key',
-    description: 'Sketchy string that looks like a key found in source.',
-    fix: 'Move to env vars immediately and rotate the key.',
-    test: /(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16})/,
-  },
-  {
     id: 'sig.emoji',
     severity: 'low',
     title: 'Emoji-heavy UI',
@@ -86,26 +94,86 @@ const PATTERNS: Array<{
     fix: 'Use Lucide, Heroicons, or Phosphor. One icon system, everywhere.',
     test: /(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]\s*){3,}/u,
   },
+
+  // ---------------------------------------------------------------------------
+  // Python (framework-specific only — print() handled by hygiene.console)
+  // ---------------------------------------------------------------------------
+  {
+    id: 'sig.pyDefault',
+    severity: 'low',
+    title: 'Default Django/Flask boilerplate',
+    description:
+      'Traces of `django-admin startproject` or `flask new` are still in the code.',
+    fix: 'Customize your base template, app name, and settings.',
+    test: /(Welcome to Django|Welcome to Flask|Your Project Name|It worked! Congratulations on your first Django-powered page)/i,
+  },
+  {
+    id: 'sig.pyDebugTrue',
+    severity: 'critical',
+    title: 'Django DEBUG=True in settings',
+    description:
+      'Django runs with DEBUG=True. This exposes tracebacks, SQL queries, and environment variables to any visitor.',
+    fix: 'Set DEBUG to read from an env var: `DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"`.',
+    test: /DEBUG\s*=\s*True/,
+  },
+  {
+    id: 'sig.pySecretKey',
+    severity: 'critical',
+    title: 'Django SECRET_KEY hardcoded',
+    description:
+      'Django SECRET_KEY is set directly in settings.py. This key signs sessions and tokens.',
+    fix: 'Read SECRET_KEY from an env var. Rotate the key if it was ever committed.',
+    test: /SECRET_KEY\s*=\s*['"][a-zA-Z0-9!@#$%^&*()_+\-=]{20,}['"]/,
+  },
 ];
 
-/**
- * Files we intentionally skip when looking for vibecoded signatures.
- */
+// Patterns to skip per purpose
+const PURPOSE_SKIP: Record<ProjectPurpose, string[]> = {
+  product: [],
+  learning: [
+    'sig.pyDefault',
+    'sig.lorem',
+    'sig.builtwith',
+    'sig.emoji',
+  ],
+  portfolio: ['sig.builtwith'],
+  docs: ['sig.lorem', 'sig.emoji'],
+  boilerplate: ['sig.lorem', 'sig.pyDefault'],
+  experiment: ['sig.lorem', 'sig.builtwith'],
+  unknown: [],
+};
+
+// Directories to never scan
 const EXCLUDED_PATH_FRAGMENTS = [
-  'node_modules',
-  '.next',
+  'node_modules/',
+  '.next/',
   'dist/',
+  'build/',
+  'out/',
+  'venv/',
+  '.venv/',
+  '__pycache__/',
+  'target/',
+  'vendor/',
   'lib/checks/',
   'privacy/page',
   'terms/page',
   'LoadingScan',
+  // Test fixtures and benchmarks
+  'bench/',
+  'benchmark/',
+  'benchmarks/',
+  'fixtures/',
+  '__tests__/',
+  '__fixtures__/',
+  'test-fixtures/',
+  '.test.',
+  '.spec.',
+  '.github/',
 ];
 
-/**
- * Files we actually want to scan for signature patterns.
- */
-function isScannableFile(path: string): boolean {
-  if (!/\.(tsx?|jsx?|vue|svelte|css|scss)$/.test(path)) return false;
+function isScannableFile(path: string, ctx: RepoContext): boolean {
+  if (!ctx.lang.sourceExtensions.test(path)) return false;
   return !EXCLUDED_PATH_FRAGMENTS.some((frag) => path.includes(frag));
 }
 
@@ -116,34 +184,51 @@ export async function checkSignatures(ctx: RepoContext): Promise<{
   const issues: Issue[] = [];
   const passed: string[] = [];
 
-  const sourceFiles = ctx.files.filter(isScannableFile);
+  const purpose = ctx.projectPurpose as ProjectPurpose | undefined;
+  const skippedIds = new Set<string>(
+    purpose ? PURPOSE_SKIP[purpose] ?? [] : []
+  );
+
+  const sourceFiles = ctx.files.filter((f) => isScannableFile(f, ctx));
   const sample = sourceFiles.slice(0, 60);
 
-  const hits = new Map<string, number>();
+  const matchedFiles = new Map<string, string[]>();
 
   for (const f of sample) {
     const content = await ctx.getFile(f);
     if (!content) continue;
 
     for (const pattern of PATTERNS) {
+      if (skippedIds.has(pattern.id)) continue;
+
       pattern.test.lastIndex = 0;
       if (pattern.test.test(content)) {
-        hits.set(pattern.id, (hits.get(pattern.id) ?? 0) + 1);
+        if (!matchedFiles.has(pattern.id)) {
+          matchedFiles.set(pattern.id, []);
+        }
+        matchedFiles.get(pattern.id)!.push(f);
       }
     }
   }
 
   for (const pattern of PATTERNS) {
-    const count = hits.get(pattern.id) ?? 0;
+    if (skippedIds.has(pattern.id)) {
+      passed.push(pattern.id);
+      continue;
+    }
 
-    if (count > 0) {
+    const files = matchedFiles.get(pattern.id) ?? [];
+
+    if (files.length > 0) {
       issues.push({
         id: pattern.id,
         category: pattern.category ?? 'signatures',
         severity: pattern.severity,
-        title: pattern.title + (count > 1 ? ` (${count} files)` : ''),
+        title:
+          pattern.title + (files.length > 1 ? ` (${files.length} files)` : ''),
         description: pattern.description,
         fix: pattern.fix,
+        affectedFiles: files.slice(0, 5),
       });
     } else {
       passed.push(pattern.id);

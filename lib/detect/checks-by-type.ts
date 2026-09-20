@@ -10,15 +10,14 @@ import { ProjectType } from './project-type';
  *   - Hygiene and signatures apply to everything
  */
 export const CHECKS_BY_TYPE: Record<ProjectType, string[]> = {
-  'web-app':            ['legal', 'seo', 'errors', 'hygiene', 'signatures'],
-  'cli-tool':           ['hygiene', 'signatures'],
-  'library':            ['hygiene', 'signatures'],
-  'mobile-app':         ['legal', 'errors', 'hygiene', 'signatures'],
-  'browser-extension':  ['legal', 'errors', 'hygiene', 'signatures'],
-  'api-service':        ['legal', 'hygiene', 'signatures'],
-  'unknown':            ['legal', 'seo', 'errors', 'hygiene', 'signatures'],
+  'web-app':            ['legal', 'seo', 'errors', 'hygiene', 'signatures', 'quality'],
+  'cli-tool':           ['hygiene', 'signatures', 'quality'],
+  'library':            ['hygiene', 'signatures', 'quality'],
+  'mobile-app':         ['legal', 'errors', 'hygiene', 'signatures', 'quality'],
+  'browser-extension':  ['legal', 'errors', 'hygiene', 'signatures', 'quality'],
+  'api-service':        ['legal', 'hygiene', 'signatures', 'quality'],
+  'unknown':            ['legal', 'seo', 'errors', 'hygiene', 'signatures', 'quality'],
 };
-
 /**
  * Human-readable label for each type — shown in the report.
  */

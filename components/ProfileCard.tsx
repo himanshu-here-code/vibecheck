@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { ScoreRing } from './ScoreRing';
 import { ClipboardIcon, CheckIcon } from './Icons';
+import { ShareButton } from './ShareButton';
+import { PURPOSE_LABELS } from '@/lib/detect/checks-by-purpose';
 import { TYPE_LABELS } from '@/lib/detect/checks-by-type';
 
 export function ProfileCard({
@@ -19,7 +21,6 @@ export function ProfileCard({
     const [ownerLogin] = (result.repo as string).split('/');
     setOwner(ownerLogin);
 
-    // Fetch owner's avatar from GitHub public API (no auth needed)
     fetch(`https://api.github.com/users/${ownerLogin}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -29,10 +30,29 @@ export function ProfileCard({
   }, [result.repo]);
 
   async function copyFull() {
-    await navigator.clipboard.writeText(buildFullReport());
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2200);
+    try {
+      await navigator.clipboard.writeText(buildFullReport());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2200);
+    } catch {
+      // clipboard failure — silently ignore
+    }
   }
+
+  const typeLabel =
+    result.projectType?.type && result.projectType.type !== 'unknown'
+      ? TYPE_LABELS[result.projectType.type as keyof typeof TYPE_LABELS]
+      : null;
+
+  const purposeLabel =
+    result.projectPurpose?.purpose &&
+    result.projectPurpose.purpose !== 'unknown'
+      ? PURPOSE_LABELS[
+          result.projectPurpose.purpose as keyof typeof PURPOSE_LABELS
+        ]
+      : null;
+
+  const skippedChecks: string[] = result.skippedChecks ?? [];
 
   return (
     <div className="bd bs-lg rounded-3xl bg-card p-8">
@@ -44,8 +64,10 @@ export function ProfileCard({
             Report for
           </div>
 
+          {/* Repo identity row */}
           <div className="mt-2 flex items-center gap-3">
             {avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={avatar}
                 alt={owner}
@@ -67,9 +89,16 @@ export function ProfileCard({
                 {result.repo}
               </div>
               <div className="text-xs text-muted">
-                {result.projectType?.type && result.projectType.type !== 'unknown' ? (
+                {typeLabel ? (
                   <>
-                    Detected as <strong>{TYPE_LABELS[result.projectType.type as keyof typeof TYPE_LABELS]}</strong> ·{' '}
+                    Detected as <strong>{typeLabel}</strong>
+                    {purposeLabel && (
+                      <>
+                        {' · '}
+                        <strong>{purposeLabel}</strong>
+                      </>
+                    )}
+                    {' · '}
                     {result.fileCount} files
                   </>
                 ) : (
@@ -79,24 +108,69 @@ export function ProfileCard({
             </div>
           </div>
 
+          {/* Verdict */}
           <p className="mt-5 text-[15px] leading-relaxed text-muted">
-            {verdictCopy(result.score)}
+            {verdictCopy(result.score, result.projectPurpose?.purpose)}
           </p>
 
-          <button
-            onClick={copyFull}
-            className="bd bs press mt-6 inline-flex items-center gap-2 rounded-xl bg-accent-3 px-4 py-2.5 text-[13px] font-bold"
-          >
-            {copied ? <CheckIcon size={15} /> : <ClipboardIcon size={15} />}
-            {copied ? 'Copied to clipboard' : 'Copy full report for AI'}
-          </button>
+          {/* Skipped checks notice */}
+          {skippedChecks.length > 0 && (
+            <div
+              className="mt-4 rounded-xl border px-3.5 py-2.5 text-[12px] leading-relaxed"
+              style={{
+                borderColor: 'rgba(10,10,10,0.1)',
+                background: 'rgba(10,10,10,0.03)',
+                color: '#6b6b6b',
+              }}
+            >
+              <span className="font-bold" style={{ color: '#0a0a0a' }}>
+                {skippedChecks.length} check
+                {skippedChecks.length === 1 ? '' : 's'} skipped:{' '}
+              </span>
+              {skippedChecks.join(', ')}. This repo doesn&apos;t appear to be a
+              user-facing product, so those checks don&apos;t apply.
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              onClick={copyFull}
+              className="bd bs-sm press-sm inline-flex items-center gap-2 rounded-xl bg-accent-3 px-4 py-2.5 text-[13px] font-bold"
+            >
+              {copied ? <CheckIcon size={15} /> : <ClipboardIcon size={15} />}
+              {copied ? 'Copied' : 'Copy report for AI'}
+            </button>
+
+            <ShareButton
+              repo={result.repo}
+              score={result.score}
+              grade={result.grade}
+            />
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function verdictCopy(score: number): string {
+function verdictCopy(score: number, purpose?: string): string {
+  const isLowExpectation =
+    purpose === 'learning' ||
+    purpose === 'experiment' ||
+    purpose === 'docs' ||
+    purpose === 'boilerplate';
+
+  if (isLowExpectation) {
+    if (score >= 60)
+      return 'Rough around the edges, but for a project like this, that\u2019s expected. Focus on the critical issues only.';
+    if (score >= 30)
+      return 'A few code quality issues, nothing serious for a project with this purpose.';
+    if (score >= 15)
+      return 'Clean. Nothing worth fixing unless you\u2019re planning to turn this into a product.';
+    return 'Very clean. Looks well maintained.';
+  }
+
   if (score >= 70)
     return 'This is a prototype, not a product. The issues below are why people bounce. Fix the red ones first.';
   if (score >= 50)

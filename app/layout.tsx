@@ -26,30 +26,84 @@ const mono = JetBrains_Mono({
   display: 'swap',
 });
 
-export const metadata: Metadata = {
-  title: 'VibeCheck — Is your app vibecoded?',
-  description:
-    'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.',
-  metadataBase: new URL('https://your-deploy-url.vercel.app'),
-  openGraph: {
-    title: 'VibeCheck — Is your app vibecoded?',
-    description:
-      'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.',
-    url: 'https://your-deploy-url.vercel.app',
-    siteName: 'VibeCheck',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'VibeCheck — Is your app vibecoded?',
-    description:
-      'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.',
-  },
-};
+const SITE_URL = 'https://vibecheck-one-swart.vercel.app';
+const DEFAULT_TITLE = 'VibeCheck — Is your app vibecoded?';
+const DEFAULT_DESCRIPTION =
+  'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.';
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ repo?: string }>;
+}): Promise<Metadata> {
+  const params = searchParams ? await searchParams : undefined;
+  const repo = params?.repo;
+
+  if (repo) {
+    // Point at the OG route with just the repo — the route pulls score from cache
+    const ogUrl = `${SITE_URL}/api/og?repo=${encodeURIComponent(repo)}`;
+
+    return {
+      metadataBase: new URL(SITE_URL),
+      title: `${repo} — VibeCheck`,
+      description: `Scan results for ${repo}`,
+      openGraph: {
+        title: `${repo} — VibeCheck`,
+        description: `Scan results for ${repo}`,
+        url: `${SITE_URL}/?repo=${encodeURIComponent(repo)}`,
+        siteName: 'VibeCheck',
+        type: 'website',
+        images: [
+          {
+            url: ogUrl,
+            width: 1200,
+            height: 630,
+            alt: `VibeCheck scan for ${repo}`,
+          },
+        ],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: `${repo} — VibeCheck`,
+        description: `Scan results for ${repo}`,
+        images: [ogUrl],
+      },
+    };
+  }
+
+  const defaultOgUrl = `${SITE_URL}/api/og?repo=vercel/next.js`;
+
+  return {
+    metadataBase: new URL(SITE_URL),
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    openGraph: {
+      title: DEFAULT_TITLE,
+      description: DEFAULT_DESCRIPTION,
+      url: SITE_URL,
+      siteName: 'VibeCheck',
+      type: 'website',
+      images: [{ url: defaultOgUrl, width: 1200, height: 630, alt: 'VibeCheck' }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: DEFAULT_TITLE,
+      description: DEFAULT_DESCRIPTION,
+      images: [defaultOgUrl],
+    },
+  };
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" className={`${sans.variable} ${display.variable} ${mono.variable}`}>
+    <html
+      lang="en"
+      className={`${sans.variable} ${display.variable} ${mono.variable}`}
+    >
       <body>
         {children}
         <Analytics />

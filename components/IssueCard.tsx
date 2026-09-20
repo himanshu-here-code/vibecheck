@@ -13,14 +13,19 @@ export function IssueCard({ issue }: { issue: any }) {
   const [copied, setCopied] = useState(false);
   const sev = SEV[issue.severity as keyof typeof SEV] ?? SEV.low;
 
+  const filesList = issue.affectedFiles?.length
+    ? issue.affectedFiles.map((f: string) => `- ${f}`).join('\n')
+    : '';
+
   const prompt = `Fix this issue in my app: ${issue.title}
 
 ${issue.description}
 
-Suggested approach: ${issue.fix}
+${filesList ? `Affected files:\n${filesList}\n\n` : ''}Suggested approach: ${issue.fix}
 
 Please make the change, keeping the existing design system and code style.`;
 
+  // ← THIS FUNCTION WAS MISSING
   async function copy() {
     await navigator.clipboard.writeText(prompt);
     setCopied(true);
@@ -44,6 +49,26 @@ Please make the change, keeping the existing design system and code style.`;
       <p className="mt-3 text-[15px] leading-relaxed text-muted">
         {issue.description}
       </p>
+
+      {/* NEW: affected files */}
+      {issue.affectedFiles?.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+            Files affected
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {issue.affectedFiles.map((f: string) => (
+              <span
+                key={f}
+                className="rounded-md border px-2 py-0.5 font-mono text-[11px]"
+                style={{ borderColor: 'rgba(10,10,10,0.15)', color: '#6b6b6b' }}
+              >
+                {f}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div
         className="mt-4 rounded-xl border-2 p-4"

@@ -1,4 +1,24 @@
+import type { LanguageDetection } from './detect/language';
+import type { LanguagePack } from './detect/language-packs';
+
+// -----------------------------------------------------------------------------
+// Core types
+// -----------------------------------------------------------------------------
+
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
+
+export type Category =
+  | 'legal'
+  | 'seo'
+  | 'errors'
+  | 'hygiene'
+  | 'signatures'
+  | 'quality'
+  | 'analytics';
+
+// -----------------------------------------------------------------------------
+// Issue — a single problem found during scan
+// -----------------------------------------------------------------------------
 
 export interface Issue {
   id: string;
@@ -8,15 +28,42 @@ export interface Issue {
   description: string;
   fix: string;
   docs?: string;
+  affectedFiles?: string[];
 }
 
-export type Category =
-  | 'legal'
-  | 'seo'
-  | 'errors'
-  | 'hygiene'
-  | 'signatures'
-  | 'analytics';
+// -----------------------------------------------------------------------------
+// RepoContext — what every check receives
+// -----------------------------------------------------------------------------
+
+export interface RepoContext {
+  owner: string;
+  repo: string;
+  branch: string;
+  files: string[];
+  fileSet: Set<string>;
+  getFile: (path: string) => Promise<string | null>;
+  getFileByPattern: (re: RegExp) => string | null;
+  language: LanguageDetection;
+  lang: LanguagePack;
+  /** Set by the orchestrator before running checks. */
+  projectPurpose?: string;
+}
+
+// -----------------------------------------------------------------------------
+// ScanResult — what the API returns
+// -----------------------------------------------------------------------------
+
+export interface ProjectTypeInfo {
+  type: string;
+  confidence: number;
+  signals: string[];
+}
+
+export interface ProjectPurposeInfo {
+  purpose: string;
+  confidence: number;
+  signals: string[];
+}
 
 export interface ScanResult {
   repo: string;
@@ -26,28 +73,7 @@ export interface ScanResult {
   passed: string[];       // ids of checks that passed
   fileCount: number;
   scannedAt: string;
-}
-
-export interface RepoContext {
-  owner: string;
-  repo: string;
-  branch: string;
-  files: string[];                        // all paths
-  fileSet: Set<string>;                   // for fast lookup
-  getFile: (path: string) => Promise<string | null>;
-  getFileByPattern: (re: RegExp) => string | null;
-}
-export interface ScanResult {
-  repo: string;
-  score: number;
-  grade: string;
-  issues: Issue[];
-  passed: string[];
-  fileCount: number;
-  scannedAt: string;
-  projectType?: {
-    type: string;
-    confidence: number;
-    signals: string[];
-  };
+  projectType?: ProjectTypeInfo;
+  projectPurpose?: ProjectPurposeInfo;
+  skippedChecks?: string[];
 }
