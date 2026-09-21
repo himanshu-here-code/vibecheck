@@ -1,10 +1,10 @@
+'use client';
 import Image from 'next/image';
 import Link from 'next/link';
 import { GithubIcon } from './Icons';
 
 export function Header() {
   function handleLogoClick() {
-    // Tell the home page to reset its scan state
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('vibecheck:reset'));
     }
