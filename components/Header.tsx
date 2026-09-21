@@ -3,11 +3,19 @@ import Link from 'next/link';
 import { GithubIcon } from './Icons';
 
 export function Header() {
+  function handleLogoClick() {
+    // Tell the home page to reset its scan state
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('vibecheck:reset'));
+    }
+  }
+
   return (
     <header className="site-header">
       <div className="container flex h-[68px] items-center justify-between">
         <Link
           href="/"
+          onClick={handleLogoClick}
           className="flex items-center gap-1.5 text-2xl leading-none"
         >
           <Image

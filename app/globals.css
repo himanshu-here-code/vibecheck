@@ -142,3 +142,9 @@ button { font-family: inherit; font-weight: inherit; }
 
 details summary { list-style: none; cursor: pointer; }
 details summary::-webkit-details-marker { display: none; }
+.container-form {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 24px;
+}

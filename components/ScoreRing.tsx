@@ -96,11 +96,10 @@ export function ScoreRing({ score, size = 160 }: ScoreRingProps) {
           </span>
         </div>
         <div
-          className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em]"
-          style={{ color: '#6b6b6b' }}
-        >
-          vibecoded
-        </div>
+        className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted"
+      >
+        vibecoded
+      </div>
       </div>
     </div>
   );

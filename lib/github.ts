@@ -4,13 +4,15 @@ import { LANGUAGE_PACKS } from './detect/language-packs';
 
 const GH = 'https://api.github.com';
 
-function headers() {
+function headers(authToken?: string) {
   const h: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'vibecheck',
   };
-  if (process.env.GITHUB_TOKEN) {
-    h.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  // Prefer the user's token if provided; fall back to our env token
+  const token = authToken || process.env.GITHUB_TOKEN;
+  if (token) {
+    h.Authorization = `Bearer ${token}`;
   }
   return h;
 }
@@ -28,10 +30,6 @@ export function parseRepoUrl(input: string): { owner: string; repo: string } | n
   return null;
 }
 
-/**
- * URL-encode each segment of a repo path. Fixes fetches for paths
- * containing spaces, #, ?, and other characters that break raw URLs.
- */
 function encodeRepoPath(path: string): string {
   return path
     .split('/')
@@ -41,18 +39,25 @@ function encodeRepoPath(path: string): string {
 
 export async function buildRepoContext(
   owner: string,
-  repo: string
+  repo: string,
+  authToken?: string
 ): Promise<RepoContext> {
   // 1. Repo metadata
   const repoRes = await fetch(`${GH}/repos/${owner}/${repo}`, {
-    headers: headers(),
+    headers: headers(authToken),
   });
   if (!repoRes.ok) {
-    throw new Error(
-      repoRes.status === 404
-        ? 'Repo not found (is it public?)'
-        : `GitHub error: ${repoRes.status}`
-    );
+    if (repoRes.status === 404) {
+      throw new Error(
+        authToken
+          ? 'Repo not found, or your token doesn\'t have access to it. Check that the token has the "repo" scope for private repos.'
+          : 'Repo not found (is it public?)'
+      );
+    }
+    if (repoRes.status === 401) {
+      throw new Error('GitHub token is invalid or expired.');
+    }
+    throw new Error(`GitHub error: ${repoRes.status}`);
   }
   const repoData = await repoRes.json();
   const branch = repoData.default_branch;
@@ -60,7 +65,7 @@ export async function buildRepoContext(
   // 2. File tree
   const treeRes = await fetch(
     `${GH}/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
-    { headers: headers() }
+    { headers: headers(authToken) }
   );
   if (!treeRes.ok) throw new Error(`Tree fetch failed: ${treeRes.status}`);
   const treeData = await treeRes.json();
@@ -71,7 +76,7 @@ export async function buildRepoContext(
 
   const fileSet = new Set(files);
 
-  // 3. Cached file fetcher with URL encoding
+  // 3. Cached file fetcher
   const cache = new Map<string, string | null>();
   const getFile = async (path: string): Promise<string | null> => {
     if (cache.has(path)) return cache.get(path)!;
@@ -83,7 +88,9 @@ export async function buildRepoContext(
       const encodedPath = encodeRepoPath(path);
       const encodedBranch = encodeURIComponent(branch);
       const res = await fetch(
-        `https://raw.githubusercontent.com/${owner}/${repo}/${encodedBranch}/${encodedPath}`
+        `https://raw.githubusercontent.com/${owner}/${repo}/${encodedBranch}/${encodedPath}`,
+        // raw.githubusercontent.com needs the Authorization header for private repos
+        authToken ? { headers: { Authorization: `token ${authToken}` } } : undefined
       );
       if (!res.ok) {
         cache.set(path, null);

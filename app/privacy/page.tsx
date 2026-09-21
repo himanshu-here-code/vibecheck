@@ -63,13 +63,72 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
+          <Section title="Public repos vs. private repos">
+            <p>
+              VibeCheck handles public and private repositories differently,
+              on purpose.
+            </p>
+            <p className="mt-4">
+              <strong>Public repos</strong> work with no setup. GitHub allows
+              anonymous reads of public repositories, so you just paste a URL
+              and click Scan. Nothing else is needed.
+            </p>
+            <p className="mt-4">
+              <strong>Private repos</strong> require you to paste a GitHub
+              personal access token. The full mechanics are in the next
+              section, but the short version is: the token is used once for
+              your scan, then discarded. We never see it after the request
+              finishes.
+            </p>
+          </Section>
+
+          <Section title="Private repositories — exactly what happens">
+            <p>
+              If you want to scan a private repo, you paste a GitHub personal
+              access token into the scan form. Here&apos;s exactly what
+              happens to it:
+            </p>
+            <ol className="ml-5 mt-4 list-decimal space-y-2 text-muted">
+              <li>
+                Your browser sends the token over HTTPS to our server. The
+                connection is encrypted end-to-end.
+              </li>
+              <li>
+                Our server uses the token to make read requests to GitHub on
+                your behalf — fetching the repo tree and a sample of source
+                files.
+              </li>
+              <li>
+                We run the same static checks we run on public repos. No
+                token-required behavior differs.
+              </li>
+              <li>
+                We return the report to your browser. Your token is never
+                included in the response.
+              </li>
+              <li>
+                <strong>Your token is not stored.</strong> Not in a database,
+                not in logs, not in analytics, not anywhere. It exists only in
+                the memory of the running request, and is garbage-collected
+                when the request finishes.
+              </li>
+            </ol>
+            <p className="mt-4">
+              We also do not cache scan results for private repos. Public
+              scans are briefly cached to speed up share previews; private
+              scans are not cached at all, so the report only ever exists in
+              your own browser tab.
+            </p>
+          </Section>
+
           <Section title="What we don't store">
             <p>We do not store, log, or retain any of the following:</p>
             <ul className="ml-5 mt-4 list-disc space-y-2 text-muted">
               <li>The repository URLs you submit</li>
               <li>The code we fetch from those repositories</li>
               <li>The results we generate</li>
-              <li>Your IP address (beyond what Vercel needs for basic request routing)</li>
+              <li>The GitHub tokens you provide for private scans</li>
+              <li>Your IP address (beyond what Vercel needs for routing)</li>
               <li>Any cookies, identifiers, or device fingerprints</li>
             </ul>
             <p className="mt-4">
@@ -112,15 +171,14 @@ export default function PrivacyPage() {
 
           <Section title="GitHub">
             <p>
-              To analyze a repository, we send requests to GitHub&apos;s public
-              API. We use an anonymous public-read access token with zero
-              scopes — it can only read public repositories and nothing else.
-              If you scan a private repo, it won&apos;t work; that&apos;s by
-              design, so we never touch anything you haven&apos;t already made
-              public.
+              To analyze a repository, we send requests to GitHub&apos;s API.
+              For public repos, we use an anonymous public-read access token
+              with zero scopes — it can only read public repositories. For
+              private repos, we use the personal access token you provide.
             </p>
             <p className="mt-4">
-              Your use of GitHub is governed by{' '}
+              Your use of GitHub — whether you scan public or private repos —
+              is governed by{' '}
               <a
                 href="https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement"
                 target="_blank"
@@ -129,8 +187,7 @@ export default function PrivacyPage() {
               >
                 GitHub&apos;s privacy statement
               </a>
-              , which we recommend reading if you care about how they handle
-              requests.
+              .
             </p>
           </Section>
 
@@ -160,8 +217,8 @@ export default function PrivacyPage() {
           <Section title="Children">
             <p>
               VibeCheck isn&apos;t directed at children under 13. We don&apos;t
-              knowingly collect information from anyone, so this is really just
-              a formality.
+              knowingly collect information from anyone, so this is really
+              just a formality.
             </p>
           </Section>
 

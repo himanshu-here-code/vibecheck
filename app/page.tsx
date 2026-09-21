@@ -13,37 +13,45 @@ export default function Home() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function scan(repoUrl: string) {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  async function scan(repoUrl: string, authToken?: string) {
+  setLoading(true);
+  setError(null);
+  setResult(null);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    try {
-      const res = await fetch('/api/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoUrl }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Scan failed');
-      setResult(data);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+  try {
+    const res = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoUrl, authToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? 'Scan failed');
+    setResult(data);
+  } catch (e: any) {
+    setError(e.message);
+  } finally {
+    setLoading(false);
+  }
   }
 
   // Auto-scan if a ?repo= param is present (from a shared link)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const repo = params.get('repo');
-    if (repo && !result && !loading) {
-      scan(repo);
+  // Reset scan when the logo is clicked
+useEffect(() => {
+  function handleReset() {
+    setResult(null);
+    setError(null);
+    setLoading(false);
+    // Clear the ?repo= URL param so refresh doesn't re-scan
+    if (window.location.search) {
+      window.history.replaceState({}, '', '/');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  window.addEventListener('vibecheck:reset', handleReset);
+  return () => window.removeEventListener('vibecheck:reset', handleReset);
+}, []);
 
   const grouped = useMemo(() => {
     if (!result) return [];
@@ -278,7 +286,7 @@ export default function Home() {
       <Header />
       <main className="pb-32">
         {showHero && <Hero />}
-        {!showHero && <div className="pt-12" />}
+        {!showHero && <div className="pt-20" />}
 
         <ScanInput onScan={scan} loading={loading} />
 

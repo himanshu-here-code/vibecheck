@@ -7,7 +7,6 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  // Used by the share preview route to fetch a cached result
   const { searchParams } = new URL(req.url);
   const repo = searchParams.get('repo');
   if (!repo) {
@@ -32,12 +31,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { repoUrl } = body;
+    const { repoUrl, authToken } = body;
     if (!repoUrl || typeof repoUrl !== 'string') {
       return NextResponse.json(
         { error: 'Missing repoUrl in request body' },
         { status: 400 }
       );
+    }
+
+    // Validate token format if provided
+    if (authToken !== undefined && authToken !== null) {
+      if (typeof authToken !== 'string') {
+        return NextResponse.json(
+          { error: 'authToken must be a string' },
+          { status: 400 }
+        );
+      }
+      if (authToken.length < 10 || authToken.length > 500) {
+        return NextResponse.json(
+          { error: 'authToken length is invalid' },
+          { status: 400 }
+        );
+      }
+      // Only allow GitHub token formats
+      if (!/^(ghp_|github_pat_|gho_|ghu_|ghs_|ghr_)/.test(authToken)) {
+        return NextResponse.json(
+          { error: 'authToken does not look like a GitHub token' },
+          { status: 400 }
+        );
+      }
     }
 
     const parsed = parseRepoUrl(repoUrl);
@@ -50,7 +72,7 @@ export async function POST(req: NextRequest) {
 
     let ctx;
     try {
-      ctx = await buildRepoContext(parsed.owner, parsed.repo);
+      ctx = await buildRepoContext(parsed.owner, parsed.repo, authToken);
     } catch (e: any) {
       return NextResponse.json(
         { error: e?.message ?? 'Failed to fetch repository from GitHub.' },
@@ -64,17 +86,20 @@ export async function POST(req: NextRequest) {
     } catch (e: any) {
       console.error('[scan] check failed:', e);
       return NextResponse.json(
-        {
-          error: 'Analysis failed.',
-          detail: e?.message ?? String(e),
-        },
+        { error: 'Analysis failed.', detail: e?.message ?? String(e) },
         { status: 500 }
       );
     }
 
-    // Cache it for sharing
-    cacheScan(result.repo, result);
+    // Cache only public scans — caching private scans could leak
+    // scan results to other users if they guess the repo name.
+    // Detect public-ness: we only cached for public scans before this
+    // feature, and we still don't cache private scans.
+    if (!authToken) {
+      cacheScan(result.repo, result);
+    }
 
+    // IMPORTANT: Never return the token in the response
     return NextResponse.json(result);
   } catch (e: any) {
     console.error('[scan] unexpected error:', e);
