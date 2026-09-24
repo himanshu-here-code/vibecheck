@@ -29,19 +29,22 @@ const mono = JetBrains_Mono({
 const SITE_URL = 'https://vibecheck-one-swart.vercel.app';
 const DEFAULT_TITLE = 'VibeCheck — Is your app vibecoded?';
 const DEFAULT_DESCRIPTION =
-  'Paste a GitHub repo. Get an honest report on what makes your app look unfinished.';
+  'Scan any GitHub repo to strip out lazy AI UI and robotic copy.';
 
 export async function generateMetadata({
   searchParams,
 }: {
-  searchParams?: Promise<{ repo?: string }>;
+  searchParams?: Promise<{ repo?: string; d?: string }>;
 }): Promise<Metadata> {
   const params = searchParams ? await searchParams : undefined;
   const repo = params?.repo;
+  const encoded = params?.d;
 
   if (repo) {
-    // Point at the OG route with just the repo — the route pulls score from cache
-    const ogUrl = `${SITE_URL}/api/og?repo=${encodeURIComponent(repo)}`;
+    const ogParams = new URLSearchParams({ repo });
+    if (encoded) ogParams.set('d', encoded);
+
+    const ogUrl = `${SITE_URL}/api/og?${ogParams.toString()}`;
 
     return {
       metadataBase: new URL(SITE_URL),
@@ -50,7 +53,7 @@ export async function generateMetadata({
       openGraph: {
         title: `${repo} — VibeCheck`,
         description: `Scan results for ${repo}`,
-        url: `${SITE_URL}/?repo=${encodeURIComponent(repo)}`,
+        url: `${SITE_URL}/?repo=${encodeURIComponent(repo)}${encoded ? `&d=${encoded}` : ''}`,
         siteName: 'VibeCheck',
         type: 'website',
         images: [
@@ -71,8 +74,7 @@ export async function generateMetadata({
     };
   }
 
-  const defaultOgUrl = `${SITE_URL}/api/og?repo=vercel/next.js`;
-
+  const defaultOgUrl = `${SITE_URL}/api/og?repo=vercel/chatbot`;
   return {
     metadataBase: new URL(SITE_URL),
     title: DEFAULT_TITLE,
@@ -83,7 +85,9 @@ export async function generateMetadata({
       url: SITE_URL,
       siteName: 'VibeCheck',
       type: 'website',
-      images: [{ url: defaultOgUrl, width: 1200, height: 630, alt: 'VibeCheck' }],
+      images: [
+        { url: defaultOgUrl, width: 1200, height: 630, alt: 'VibeCheck' },
+      ],
     },
     twitter: {
       card: 'summary_large_image',

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { CheckIcon } from './Icons';
+import { encodeScanForUrl } from '@/lib/cache';
 
 const SITE_URL = 'https://vibecheck-one-swart.vercel.app';
 
@@ -8,10 +9,12 @@ export function ShareButton({
   repo,
   score,
   grade,
+  result,
 }: {
   repo: string;
   score: number;
   grade: string;
+  result: any;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -42,24 +45,20 @@ export function ShareButton({
     return () => document.removeEventListener('keydown', handleKey);
   }, [open]);
 
-  const shareUrl = `${SITE_URL}/?repo=${encodeURIComponent(repo)}`;
-  const shareText = `I ran ${repo} through VibeCheck. Score: ${score}% (grade ${grade}).`;
+  const encoded = result ? encodeScanForUrl(result) : '';
+  const shareUrl = encoded
+    ? `${SITE_URL}/?repo=${encodeURIComponent(repo)}&d=${encoded}`
+    : `${SITE_URL}/?repo=${encodeURIComponent(repo)}`;
 
-  function shareWhatsApp() {
-    const url = `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + shareUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-    setOpen(false);
-  }
+  const hasEncoded = encoded.length > 0;
 
-  function shareReddit() {
-    const url = `https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-    setOpen(false);
-  }
-
-  function shareX() {
-    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+  function openShare(platform: 'x' | 'reddit' | 'whatsapp') {
+    if (!hasEncoded) return;
+    window.open(
+      `/api/share/${platform}?d=${encoded}`,
+      '_blank',
+      'noopener,noreferrer'
+    );
     setOpen(false);
   }
 
@@ -72,16 +71,16 @@ export function ShareButton({
         setOpen(false);
       }, 1400);
     } catch {
-      // clipboard failure
+      // clipboard failure — silently ignore
     }
   }
 
   return (
     <div className="relative" ref={popoverRef}>
-      {/* Trigger button — small icon */}
+      {/* Trigger button */}
       <button
         onClick={() => setOpen(!open)}
-        className="bd bs-sm press-sm inline-flex h-9 w-9 items-center justify-center rounded-xl bg-card"
+        className="bd bs-sm press-sm inline-flex h-10 w-10 items-center justify-center rounded-xl bg-card"
         aria-label="Share this report"
         aria-expanded={open}
       >
@@ -91,7 +90,7 @@ export function ShareButton({
       {/* Popover */}
       {open && (
         <div
-          className="bd bs-lg absolute right-0 top-11 z-50 w-64 overflow-hidden rounded-2xl bg-card p-2"
+          className="bd bs-lg absolute right-0 top-12 z-50 w-64 overflow-hidden rounded-2xl bg-card p-2"
           style={{ animation: 'pop-in 0.15s ease-out' }}
         >
           <div className="px-2 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
@@ -102,20 +101,26 @@ export function ShareButton({
             icon={<WhatsAppIcon />}
             label="Share on WhatsApp"
             bg="#25D366"
-            onClick={shareWhatsApp}
+            onClick={() => openShare('whatsapp')}
+            disabled={!hasEncoded}
           />
+
           <ShareItem
             icon={<RedditIcon />}
             label="Post on Reddit"
             bg="#FF4500"
-            onClick={shareReddit}
+            onClick={() => openShare('reddit')}
+            disabled={!hasEncoded}
           />
+
           <ShareItem
             icon={<XIcon />}
             label="Share on X"
             bg="#0a0a0a"
-            onClick={shareX}
+            onClick={() => openShare('x')}
+            disabled={!hasEncoded}
           />
+
           <ShareItem
             icon={copied ? <CheckIcon size={14} /> : <LinkIcon />}
             label={copied ? 'Link copied' : 'Copy link'}
@@ -129,23 +134,30 @@ export function ShareButton({
   );
 }
 
+// =============================================================================
+// Share item
+// =============================================================================
+
 function ShareItem({
   icon,
   label,
   bg,
   dark,
   onClick,
+  disabled,
 }: {
   icon: React.ReactNode;
   label: string;
   bg: string;
   dark?: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-black/[0.04]"
+      disabled={disabled}
+      className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
     >
       <span
         className="flex h-8 w-8 items-center justify-center rounded-lg border-2"
@@ -162,14 +174,22 @@ function ShareItem({
   );
 }
 
-// ---------------------------------------------------------------------------
+// =============================================================================
 // Icons
-// ---------------------------------------------------------------------------
+// =============================================================================
 
 function ShareIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <circle cx="18" cy="5" r="3" />
       <circle cx="6" cy="12" r="3" />
       <circle cx="18" cy="19" r="3" />
@@ -205,8 +225,16 @@ function XIcon() {
 
 function LinkIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
     </svg>

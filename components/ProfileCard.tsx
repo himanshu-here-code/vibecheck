@@ -137,10 +137,11 @@ export function ProfileCard({
 
             {!isPrivate && (
               <ShareButton
-                repo={result.repo}
-                score={result.score}
-                grade={result.grade}
-              />
+                  repo={result.repo}
+                  score={result.score}
+                  grade={result.grade}
+                  result={result}
+                />
             )}
 
             {isPrivate && (
